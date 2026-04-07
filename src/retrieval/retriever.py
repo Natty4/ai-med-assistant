@@ -12,19 +12,20 @@ from langchain_chroma import Chroma
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from config.settings import INDEX_DIR, EMBEDDING_MODEL, RETRIEVER_K
-
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 
 
 class MedicalRetriever:
     def __init__(self):
         print("   → Loading embeddings model...")
-        self.embeddings = HuggingFaceEmbeddings(
-            model_name=EMBEDDING_MODEL,
-            cache_folder="./models/embeddings_cache",
-            model_kwargs={'device': 'cpu'},
-            encode_kwargs={'normalize_embeddings': True}
-        )
+        # self.embeddings = HuggingFaceEmbeddings(
+        #     model_name=EMBEDDING_MODEL,
+        #     cache_folder="./models/embeddings_cache",
+        #     model_kwargs={'device': 'cpu'},
+        #     encode_kwargs={'normalize_embeddings': True}
+        # )
+        self.embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
         
         print(f"   → Connecting to ChromaDB at {INDEX_DIR}...")
         self.vectorstore = Chroma(

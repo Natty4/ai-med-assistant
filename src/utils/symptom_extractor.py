@@ -5,16 +5,19 @@ from pathlib import Path
 import numpy as np
 from langchain_huggingface import HuggingFaceEmbeddings
 from config.settings import SYMPTOM_LEXICON_PATH, EMBEDDING_MODEL
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
 class SymptomExtractor:
     """Robust symptom extractor with auto-fallback."""
     
     def __init__(self, embeddings: HuggingFaceEmbeddings = None):
-        self.embeddings = embeddings or HuggingFaceEmbeddings(
-            model_name=EMBEDDING_MODEL,
-            model_kwargs={'device': 'cpu'},
-            encode_kwargs={'normalize_embeddings': True}
-        )
+        # self.embeddings = embeddings or HuggingFaceEmbeddings(
+        #     model_name=EMBEDDING_MODEL,
+        #     model_kwargs={'device': 'cpu'},
+        #     encode_kwargs={'normalize_embeddings': True}
+        # )
+        
+        embeddings = embeddings or GoogleGenerativeAIEmbeddings(model="models/embedding-001")
         
         self.lexicon: list[str] = []
         self.lexicon_emb_np = np.array([])
