@@ -22,6 +22,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from scripts.bootstrap import bootstrap_pipeline
 from src.synthesis.response_generator import ResponseGenerator
+from src.utils.redis_client import redis_client
 from app.api.models import ChatRequest, ChatResponse
 from app.bot.handlers import dp, bot, medical_assistant
 
@@ -36,38 +37,48 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     global medical_assistant
     
-    logger.info("🚀 Starting Medical Assistant with Webhook...")
-    if os.getenv("RUN_BOOTSTRAP", "true") == "true":
-        bootstrap_pipeline()
-    # 1. Initialize Medical Assistant
-    ResponseGenerator.initialize()
-    medical_assistant = ResponseGenerator()
+    logger.info("🚀 Starting Initializing Services...")
+    
+    # 1. Initialize Redis FIRST (Fast and required for everything else)
+    await redis_client.init()
 
-    # 2. Smart Webhook Management
-    webhook_url = os.getenv("WEBHOOK_URL")
-    if not webhook_url:
-        logger.warning("⚠️ WEBHOOK_URL not set in .env — Running without webhook (polling mode)")
-    else:
+    # 2. Run Bootstrap/Heavy Loading in a way that doesn't block the startup
+    # move the heavy initialization to a background task so the API starts 
+    # and responds to health checks while the models load.
+    async def heavy_init():
+        global medical_assistant
         try:
-            # Check current webhook
-            webhook_info = await bot.get_webhook_info()
+            if os.getenv("RUN_BOOTSTRAP", "true") == "true":
+                # Run in a thread to not block the event loop
+                await asyncio.to_thread(bootstrap_pipeline)
             
-            if webhook_info.url == webhook_url:
-                logger.info(f"✅ Webhook already set correctly")
-            else:
-                # Set or update webhook
-                await bot.set_webhook(
-                    url=webhook_url,
-                    drop_pending_updates=True,   # Clean old updates
-                    allowed_updates=["message", "callback_query"]
-                )
-                logger.info(f"🔄 Webhook successfully set/updated")
+            # Initialize AI Components
+            await ResponseGenerator.initialize()
+            medical_assistant = ResponseGenerator()
+            logger.info("✅ Medical Assistant fully loaded in background")
+        except Exception as e:
+            logger.error(f"❌ Background Init Failed: {e}")
+
+    # Start the loading process
+    init_task = asyncio.create_task(heavy_init())
+
+    # 3. Webhook Management (Keep it async)
+    webhook_url = os.getenv("WEBHOOK_URL")
+    if webhook_url:
+        try:
+            await bot.set_webhook(
+                url=webhook_url,
+                drop_pending_updates=True,
+                allowed_updates=["message", "callback_query"]
+            )
+            logger.info(f"🔄 Webhook successfully set")
         except Exception as e:
             logger.error(f"❌ Failed to set webhook: {e}")
 
-    yield  # Application runs here
+    yield  # API IS NOW "UP" AND RESPONDING TO LEAPCELL
 
-    logger.info("🛑 Medical Assistant shutdown complete.")
+    logger.info("🛑 Shutting down...")
+    await redis_client.close()
 
 
 app = FastAPI(lifespan=lifespan, title="Medical Assistant API + Webhook")
@@ -94,11 +105,15 @@ async def telegram_webhook(request: Request):
 
 
 # Health check
+@app.get("/")
 @app.get("/health")
-def health_check():
+async def health_check():
+    # If medical_assistant isn't ready, we are "starting" but the port is open
+    is_ready = medical_assistant is not None
     return {
-        "status": "healthy",
-        "service": "Medical Assistant (Webhook Mode)"
+        "status": "healthy" if is_ready else "initializing",
+        "service": "Medical Assistant",
+        "ready": is_ready
     }
 
 
