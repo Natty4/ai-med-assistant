@@ -6,6 +6,7 @@ import re
 import json
 import time
 import uuid
+import asyncio
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Tuple, Optional
@@ -20,6 +21,7 @@ from src.retrieval.retriever import MedicalRetriever
 from src.utils.symptom_extractor import SymptomExtractor
 from src.utils.logging_config import get_logger
 from src.utils.helpers import categorize_severity
+from src.utils.redis_client import redis_client
 
 load_dotenv()
 console = Console()
@@ -62,7 +64,6 @@ class LLMManager:
         self.current_idx = (self.current_idx + 1) % len(self.models)
         logger.info(f"🔄 Rotated to model: {self.models[self.current_idx]}")
 
-
 class ResponseGenerator:
     def __init__(self):
         global _global_instance
@@ -70,31 +71,30 @@ class ResponseGenerator:
             _global_instance = self
             self._initialize_components()
         else:
-            # Reuse the already initialized global instance
             self.__dict__ = _global_instance.__dict__
 
     def _initialize_components(self):
-        """Internal method called only once"""
+        """Called only once"""
         self.llm_manager = LLMManager()
         self.retriever = None
         self.symptom_extractor = None
-        self.profile = self.load_profile()
-        self.history = self.load_history()
         self.structured_db: Dict[str, dict] = {}
         self.session_id = str(uuid.uuid4())[:8]
 
     @classmethod
-    def initialize(cls):
+    async def initialize(cls):
         """Call once at startup"""
         global _global_initialized, _global_instance
         if _global_initialized:
             return
 
+        await redis_client.init()   # Initialize Redis
+
         console.print("[dim]🔄 Pre-loading Medical Assistant...[/dim]")
         logger.info("System pre-initialization started")
 
-        # Create and fully load the global instance
-        instance = cls()  # This triggers _initialize_components
+        instance = cls()  # Triggers _initialize_components
+
         instance.retriever = MedicalRetriever()
         instance.symptom_extractor = SymptomExtractor(
             embeddings=instance.retriever.get_embeddings()
@@ -105,7 +105,7 @@ class ResponseGenerator:
         console.print("[green]✅ Medical Assistant fully pre-loaded[/green]")
         logger.info("System pre-initialized successfully")
 
-
+    # ====================== STRUCTURED DB (In Memory) ======================
     def load_structured_db(self) -> Dict[str, dict]:
         if not STRUCTURED_JSON.exists():
             logger.warning("nhs_structured.json not found")
@@ -118,39 +118,23 @@ class ResponseGenerator:
             logger.error(f"Failed to load structured DB: {e}")
             return {}
 
-    def load_profile(self) -> dict:
-        if PROFILE_PATH.exists():
-            try:
-                with open(PROFILE_PATH, encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception as e:
-                logger.error("Failed to load profile", extra={"error": str(e)})
-        return DEFAULT_PROFILE.copy()
+    # ====================== PROFILE (Redis) ======================
+    async def load_profile(self, user_id: int = None) -> dict:
+        if not user_id:
+            return DEFAULT_PROFILE.copy()
+        return await redis_client.get_profile(user_id) or DEFAULT_PROFILE.copy()
 
-    def load_history(self) -> List[Dict]:
-        if HISTORY_PATH.exists():
-            try:
-                with open(HISTORY_PATH, encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
-                pass
-        return []
+    async def save_profile(self, user_id: int, profile: dict):
+        await redis_client.save_profile(user_id, profile)
 
-    def save_profile(self):
-        PROFILE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            with open(PROFILE_PATH, "w", encoding="utf-8") as f:
-                json.dump(self.profile, f, indent=2, ensure_ascii=False)
-        except Exception as e:
-            logger.error("Failed to save profile", extra={"error": str(e)})
+    # ====================== HISTORY (Redis) ======================
+    async def load_history(self, user_id: int) -> List[Dict]:
+        key = f"user:history:{user_id}"
+        data = await redis_client.async_redis.lrange(key, 0, -1)
+        return [json.loads(item) for item in data] if data else []
 
-    def save_history(self):
-        HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            with open(HISTORY_PATH, "w", encoding="utf-8") as f:
-                json.dump(self.history[-100:], f, indent=2, ensure_ascii=False)
-        except Exception as e:
-            logger.error("Failed to save history", extra={"error": str(e)})
+    async def save_history(self, user_id: int, entry: dict):
+        await redis_client.add_query_history(user_id, entry)
             
             
     def generate(self, user_query: str) -> str:
@@ -216,7 +200,7 @@ class ResponseGenerator:
         async for chunk in self.llm.astream(refined_prompt):
             yield chunk
     
-    def generate_structured(self, user_query: str) -> dict:
+    def generate_structured(self, user_query: str, user_id: int = None) -> dict:
         """Main structured response"""
         start_time = time.time()
         user_query = user_query.strip()
@@ -235,7 +219,9 @@ class ResponseGenerator:
 
         # This line was failing before — now guaranteed safe
         symptoms = self.symptom_extractor.extract(user_query) or [user_query]
-        retrieval = self.retriever.retrieve_with_personalization(user_query, self.profile, symptoms=symptoms)
+        retrieval = self.retriever.retrieve_with_personalization(
+            user_query, self.load_profile(user_id) if user_id else DEFAULT_PROFILE, symptoms=symptoms
+        )
         
         all_docs = retrieval.get("symptom_docs", []) + retrieval.get("condition_docs", [])
         main_condition = all_docs[0].metadata.get("condition", "Unknown") if all_docs else "Unknown"
@@ -292,6 +278,16 @@ class ResponseGenerator:
             elif structured.get(key) and len([x for x in structured[key] if str(x).strip()]):
                 available.append({"key": key, "label": label})
 
+        # Save history
+        if user_id:
+            history_entry = {
+                "timestamp": datetime.now().isoformat(),
+                "query": user_query,
+                "symptoms": symptoms,
+                "urgency": urgency_level
+            }
+            asyncio.create_task(self.save_history(user_id, history_entry))
+            
         if llm.model == "gemini-3.1-flash-lite-preview":
             summary_text = summary_text[0].get('text')
         return {

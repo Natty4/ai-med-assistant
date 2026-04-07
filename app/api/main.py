@@ -5,6 +5,7 @@ import os
 import uuid
 import time
 import logging
+import asyncio
 from contextlib import asynccontextmanager
 from typing import Dict
 
@@ -19,6 +20,7 @@ from aiogram.types import Update
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+from scripts.bootstrap import bootstrap_pipeline
 from src.synthesis.response_generator import ResponseGenerator
 from app.api.models import ChatRequest, ChatResponse
 from app.bot.handlers import dp, bot, medical_assistant
@@ -35,7 +37,8 @@ async def lifespan(app: FastAPI):
     global medical_assistant
     
     logger.info("🚀 Starting Medical Assistant with Webhook...")
-
+    if os.getenv("RUN_BOOTSTRAP", "true") == "true":
+        bootstrap_pipeline()
     # 1. Initialize Medical Assistant
     ResponseGenerator.initialize()
     medical_assistant = ResponseGenerator()
@@ -101,7 +104,10 @@ def health_check():
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
-    structured = medical_assistant.generate_structured(request.query)
+    structured = await asyncio.to_thread(
+        medical_assistant.generate_structured,
+        request.query
+    )
     return {
         "query_id": structured["query_id"],
         "session_id": request.session_id or str(uuid.uuid4())[:8],
