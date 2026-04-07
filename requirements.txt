@@ -25,4 +25,5 @@ beautifulsoup4
 requests
 tqdm
 rich
+numpy<=2
 
