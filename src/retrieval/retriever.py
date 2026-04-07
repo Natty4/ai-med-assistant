@@ -38,6 +38,9 @@ class MedicalRetriever:
         self.k_symptom = 4
         self.k_condition = 4
 
+    def get_embeddings(self):
+        return self.embeddings
+        
     def retrieve_with_personalization(self, query: str, profile: dict = None, 
                                       symptoms: List[str] = None) -> Dict[str, List[Document]]:
         """
