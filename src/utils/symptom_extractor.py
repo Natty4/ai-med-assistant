@@ -20,7 +20,7 @@ class SymptomExtractor:
         if embeddings:
             self.embeddings = embeddings
         else:
-            self.embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+            self.embeddings = GoogleGenerativeAIEmbeddings(model="text-embedding-004")
             
         self.lexicon: list[str] = []
         self.lexicon_emb_np = np.array([])

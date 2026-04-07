@@ -25,7 +25,7 @@ class MedicalRetriever:
         #     model_kwargs={'device': 'cpu'},
         #     encode_kwargs={'normalize_embeddings': True}
         # )
-        self.embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+        self.embeddings = GoogleGenerativeAIEmbeddings(model="text-embedding-004")
         
         print(f"   → Connecting to ChromaDB at {INDEX_DIR}...")
         self.vectorstore = Chroma(
