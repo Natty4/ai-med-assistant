@@ -1,4 +1,3 @@
-```markdown
 # 🩺 Medical Assistant — Intelligent RAG System
 
 **A production-grade, personalized medical information assistant powered by NHS data and Large-Scale RAG.**
