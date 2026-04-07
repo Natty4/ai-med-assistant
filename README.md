@@ -1,147 +1,172 @@
 # 🩺 Medical Assistant — Intelligent RAG System
 
-**A production-grade, personalized medical information assistant powered by NHS data and Large-Scale RAG.**
-
-Built for accuracy, safety, and exceptional user experience.
+**A production-grade, safe, and personalized medical information assistant** powered by official NHS data using advanced Large-Scale Retrieval-Augmented Generation (RAG).
 
 ---
 
 ## Key Features
 
-- **Hybrid RAG Architecture** — Object-as-a-Doc with rich metadata
-- **Smart Telegram UX**:
-  - Real-time typing animation using Message Drafts
-  - All medical sections rendered as **expandable blockquotes**
-  - Smart "View Images" button that disappears after use
-- **Personalized Retrieval** — Age, chronic conditions, and history-aware
-- **Dynamic Model Rotation** — Automatic fallback on rate limits (Gemini models)
-- **Zero Information Loss** — Full structured + raw content available
-- **High Safety Standards** — Red flag detection, urgency triage, strict disclaimers
-- **Fast & Scalable** — Pre-loaded embeddings + FAISS at startup
+- Real-time **expandable blockquotes** UI on Telegram
+- Personalized retrieval (age, chronic conditions, history)
+- Dynamic Gemini model rotation on rate limits
+- Smart loading animation using Telegram Message Drafts
+- High safety with red-flag detection and urgency triage
+- Hybrid RAG architecture for maximum accuracy and completeness
 
 ---
 
-## Architecture
+## System Architecture
 
-```
-Query → Symptom Extraction → Personalized Retrieval → 
-LLM Synthesis → Structured Output → Telegram Rich UI
+### High-Level Architecture
+
+```mermaid
+flowchart TD
+    A[NHS.uk Website] --> B[Scraper]
+    B --> C[Raw HTML Storage]
+    C --> D[Structurer + Full-Text Extractor]
+    D --> E[Processed Data + Lexicon]
+    E --> F[Hybrid Chunker]
+    F --> G[FAISS Vector Store]
+    
+    H[User Query] --> I[Telegram Bot / API]
+    I --> J[Symptom Extractor]
+    J --> K[Personalized Retriever]
+    K --> L[Response Generator + LLM]
+    L --> M[Rich Response]
+    M --> N[Dynamic Telegram UI]
 ```
 
-**Core Components:**
-- **Retriever**: FAISS + BGE embeddings with hybrid scoring (keyword + semantic + personalization)
-- **Generator**: Gemini models with intelligent rotation
-- **UI Layer**: Aiogram 3.x with expandable blockquotes + dynamic inline keyboards
-- **Data Pipeline**: NHS scraper → Structurer → Rich Document Indexer
+### Layered Architecture
+
+| Layer                  | Components                          | Technologies                          | Responsibility |
+|------------------------|-------------------------------------|---------------------------------------|--------------|
+| **Ingestion**          | Scraper, Structurer                | BeautifulSoup4, Requests             | Data collection & parsing |
+| **Data Processing**    | JSONL + Lexicon Builder            | Python, JSON                         | Structuring + Full-text |
+| **Indexing**           | Hybrid Object-as-a-Doc Chunker     | LangChain, FAISS                     | Vector embedding |
+| **Retrieval**          | Personalized Retriever             | FAISS + Custom Scoring               | Semantic + Personalization |
+| **Generation**         | LLM Manager + Response Generator   | Gemini (multi-model)                 | Safe synthesis |
+| **Application**        | Telegram Bot + FastAPI             | Aiogram 3, FastAPI                   | User experience |
+| **Safety**             | Red-flag detector, Urgency Triage  | Rules + LLM                          | Medical safety |
+
+---
+
+## 🔧 Data Engineering Design & Flow
+
+### End-to-End Data Pipeline
+
+```mermaid
+flowchart LR
+    A[NHS.uk Conditions & Symptoms] 
+    --> B[Scraper]
+    --> C[Raw HTML Storage]
+    --> D[Structurer + Full-Text Extractor]
+    --> E[Processed Files\n+ Symptom Lexicon]
+    --> F[Hybrid Chunker]
+    --> G[Rich Documents]
+    --> H[FAISS Vector Index]
+```
+### Detailed Data Flow
+
+1. **Scraping**  
+   - Crawls NHS Conditions A-Z and Symptoms A-Z pages
+   - Saves complete raw HTML for every page
+
+2. **Structuring**  
+   - Extracts structured fields (`symptoms`, `causes`, `self_care`, `treatment`, etc.)
+   - Extracts **full clean page text** (`full_text`)
+   - Extracts images with captions
+   - Builds semantic symptom lexicon
+
+3. **Chunking Strategy (Hybrid Object-as-a-Doc)**  
+   - **One Document = One NHS Page**
+   - `page_content`: Clean, well-formatted Markdown (optimized for embeddings)
+   - `metadata`: Rich context including `full_text`, structured fields, images, risk level, source URL, etc.
+
+4. **Indexing**  
+   - Uses `sentence-transformers/all-MiniLM-L6-v2`
+   - Stored in FAISS with cosine similarity
+
+---
+
+## Query-Time Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Bot
+    participant Retriever
+    participant LLM
+    participant UI
+
+    User->>Bot: Query
+    Bot->>Retriever: Personalized Retrieval
+    Retriever-->>Bot: Top-k Documents + Full Text
+    Bot->>LLM: Structured + Full Context
+    LLM-->>Bot: Summary + Urgency + Content
+    Bot->>UI: Expandable Blockquotes + Images Button
+```
 
 ---
 
 ## Tech Stack
 
-- **Backend**: FastAPI + Aiogram 3
-- **LLM**: Google Gemini (dynamic multi-model rotation)
+- **LLM**: Google Gemini (dynamic rotation)
 - **Embeddings**: `sentence-transformers/all-MiniLM-L6-v2`
-- **Vector Store**: FAISS (Object-as-a-Doc)
-- **Frontend**: Telegram Bot (Rich HTML + Expandable Blockquotes)
-- **Scraping**: BeautifulSoup4 + NHS.uk
-- **Others**: LangChain, Pydantic, asyncio, dotenv
+- **Vector DB**: FAISS
+- **Bot Framework**: Aiogram 3
+- **API**: FastAPI
+- **Scraping**: BeautifulSoup4
+- **Others**: LangChain, Pydantic, asyncio
 
 ---
 
 ## Quick Start
 
-### 1. Clone & Setup
 ```bash
-git clone https://github.com/natty4/ai-med-assistant.git
-cd ai-medical-assistant
-python -m venv venv
-source venv/bin/activate    # Windows: venv\Scripts\activate
+# 1. Setup
 pip install -r requirements.txt
-```
 
-### 2. Environment Variables (`.env`)
-```env
-GOOGLE_API_KEY=your_key_here
-TELEGRAM_BOT_TOKEN=your_bot_token_here
+# 2. Configure
+cp .env.example .env
+# → Add GOOGLE_API_KEY and TELEGRAM_BOT_TOKEN
 
-# Optional
-LLM_MODELS=google-gemini-models
-EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
-```
-
-### 3. Data Pipeline
-```bash
-# 1. Scrape NHS data
+# 3. Ingest Data
 python run_ingestion.sh
- or
-python -m scripts.ingest
 
-# 2. Build vector index
-python -m scripts.build_index
-```
+# 4. Build Index
+python scripts/build_index.py
 
-### 4. Run Services
-
-**Telegram Bot:**
-```bash
+# 5. Run Bot
 python -m app.bot.main
-```
 
-**FastAPI Backend:**
-```bash
+# 6. Run API (optional)
 uvicorn app.api.main:app --host 0.0.0.0 --port 8080 --reload
 ```
 
----
-
-## How It Works
-
-1. **User Query** → Early non-medical filter + symptom extraction
-2. **Retrieval** → Personalized similarity search (boosts chronic conditions, age, etc.)
-3. **Generation** → LLM receives structured markdown + full page context
-4. **Response** → Clean summary + urgency + expandable sections
-5. **UI** → Telegram message edited dynamically with rich formatting
-
-**Urgency Levels**: LOW (🟢), MEDIUM (🟡), HIGH (🔴) with clear guidance.
 
 ---
 
-## Safety & Responsibility
+## Safety & Medical Responsibility
 
-- **Never diagnoses** — Only provides information from official NHS sources
-- **Strict red-flag detection** for emergencies
-- **Conservative triage** — errs on the side of caution
-- **Clear disclaimers** on every response
-- **Not a replacement** for professional medical advice
+- Does **not** diagnose or replace professional medical advice
+- Strong red-flag detection and emergency guidance
+- Conservative urgency assessment
+- Clear disclaimers on every response
 
-> **⚠️ Always consult a qualified healthcare professional for medical concerns.**
-
----
-
-## Future Enhancements
-
-- Full raw HTML + semantic chunking strategy
-- Voice input support
-- Multi-language (starting with Amharic)
-- User feedback loop & continuous learning
-- Web dashboard + history analytics
-- Redis session store for horizontal scaling
+> **⚠️ This tool is for informational purposes only. Always consult a qualified healthcare professional.**
 
 ---
 
-## Performance
+## Future Roadmap
 
-- Cold start: ~4–6 seconds (embeddings + FAISS preload)
-- Average response: < 1.8s after warm-up
-- Supports concurrent users efficiently
-
----
-
-“💙 Empowering proactive accessible healthcare information through evidence-based AI.”
+- Full semantic chunking + Graph RAG
+- Multi-language support (Amharic + others)
+- User profile persistence with Redis
+- Web dashboard
+- Voice input
 
 ---
 
-**Contributing** • **License** • **Disclaimer**
+**Built with precision, safety, and user experience in mind.**
 
 ---
-
