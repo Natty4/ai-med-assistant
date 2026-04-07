@@ -100,7 +100,7 @@ async def chat_endpoint(request: ChatRequest):
     }
     
 
-@app.get("/")
+@app.get("/", methods=["GET", "HEAD"])
 @app.get("/health")
 @app.get("/kaithheathcheck")
 async def health():

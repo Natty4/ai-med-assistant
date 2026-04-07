@@ -1,3 +1,5 @@
+# src/utils/redis_cleint.py
+
 import json
 import logging
 from typing import Dict, Optional, Any
@@ -23,10 +25,20 @@ class RedisClient:
     async def init(self):
         if self._initialized:
             return
-        self.async_redis = aioredis.from_url(REDIS_URL, decode_responses=True)
-        self.sync_redis = redis.from_url(REDIS_URL, decode_responses=True)
-        self._initialized = True
-        logger.info("✅ Redis connected")
+        try:
+            # Force both to initialize inside the async loop
+            self.async_redis = aioredis.from_url(REDIS_URL, decode_responses=True)
+            # Only use sync if absolutely necessary for a library, 
+            # otherwise stick to async_redis for everything.
+            self.sync_redis = redis.from_url(REDIS_URL, decode_responses=True)
+            
+            # Ping to verify connection
+            await self.async_redis.ping()
+            self._initialized = True
+            logger.info("✅ Redis connected successfully")
+        except Exception as e:
+            logger.error(f"❌ Redis connection failed: {e}")
+            raise e
 
     # ==================== USER PROFILE ====================
     async def save_profile(self, user_id: int, profile: dict):
