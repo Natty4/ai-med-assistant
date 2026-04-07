@@ -10,7 +10,7 @@ BASE_DIR = Path(__file__).parent.parent
 
 
 LLM_MODELS = os.getenv("LLM_MODELS", "gemini-2.5-flash").split(",")
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MicroLM-L12-v2")
 TEMPERATURE = float(os.getenv("TEMPERATURE", "0.0"))
 MAX_TOKENS = int(os.getenv("MAX_TOKENS", "2048"))
 

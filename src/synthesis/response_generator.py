@@ -170,10 +170,6 @@ class ResponseGenerator:
         response_obj = self.llm.invoke(prompt_text)
         return response_obj.content if isinstance(response_obj, AIMessage) else str(response_obj)
 
-        # except Exception as e:
-        #     logger.error("Generation failed", extra={"error": str(e)})
-        #     return f"⚠️ I encountered an error processing your request. Please try again."
-
     async def stream_generate(self, user_query: str):
         """Async generator that yields tokens from Gemini"""
         start_time = time.time()

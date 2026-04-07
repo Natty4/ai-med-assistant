@@ -1,5 +1,6 @@
 # src/utils/symptom_extractor.py
 
+import os
 import json
 from pathlib import Path
 import numpy as np
@@ -20,7 +21,10 @@ class SymptomExtractor:
         if embeddings:
             self.embeddings = embeddings
         else:
-            self.embeddings = GoogleGenerativeAIEmbeddings(model="text-embedding-004")
+            self.embeddings = GoogleGenerativeAIEmbeddings(
+                model="models/gemini-embedding-001",
+                google_api_key=os.getenv("GOOGLE_API_KEY")
+            )
             
         self.lexicon: list[str] = []
         self.lexicon_emb_np = np.array([])
