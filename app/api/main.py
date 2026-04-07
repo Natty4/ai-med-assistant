@@ -20,7 +20,7 @@ from aiogram.types import Update
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from src.synthesis.response_generator import ResponseGenerator
-from src.synthesis.response_generator import ResponseGenerator
+from app.api.models import ChatRequest, ChatResponse
 from app.bot.handlers import dp, bot, medical_assistant
 
 load_dotenv = __import__("dotenv").load_dotenv
@@ -98,8 +98,6 @@ def health_check():
         "service": "Medical Assistant (Webhook Mode)"
     }
 
-# Keep your existing /chat endpoint if needed
-from app.api.models import ChatRequest, ChatResponse
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
@@ -115,3 +113,14 @@ async def chat_endpoint(request: ChatRequest):
         "sections": structured["sections"],
         "latency_ms": structured["latency_ms"]
     }
+    
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run(
+        "app.api.main:app",
+        host="0.0.0.0",
+        port=8080,
+        log_level="info",
+    )
