@@ -55,11 +55,10 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(background_init())
     yield
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(lifespan=lifespan, title="Medical Assistant API + Webhook")
     
 
 
-app = FastAPI(lifespan=lifespan, title="Medical Assistant API + Webhook")
 
 app.add_middleware(
     CORSMiddleware,
@@ -86,9 +85,9 @@ async def telegram_webhook(request: Request):
 # MANDATORY: Add every path Leapcell is trying to hit
 @app.get("/")
 @app.get("/health")
-@app.get("/kaithheathcheck") # <--- Match your log error exactly
+@app.get("/kaithheathcheck")
 async def health():
-    # If medical_assistant isn't ready, we are "starting" but the port is open
+    # If medical_assistant isn't ready, "starting" but the port is open
     is_ready = medical_assistant is not None
     return {
         "status": "healthy" if is_ready else "initializing",
@@ -97,7 +96,20 @@ async def health():
     }
     
 
-
+if __name__ == "__main__":
+    import uvicorn
+    # Render provides the port via an environment variable
+    # If not found, it defaults to 8080
+    port = int(os.environ.get("PORT", 8080))
+    
+    uvicorn.run(
+        "app.api.main:app",
+        host="0.0.0.0",
+        port=port,
+        log_level="info"
+    )
+        
+        
 # @app.post("/chat", response_model=ChatResponse)
 # async def chat_endpoint(request: ChatRequest):
 #     structured = await asyncio.to_thread(
@@ -116,13 +128,3 @@ async def health():
 #         "latency_ms": structured["latency_ms"]
 #     }
     
-
-if __name__ == "__main__":
-    import uvicorn
-
-    uvicorn.run(
-        "app.api.main:app",
-        host="0.0.0.0",
-        port=8080,
-        log_level="info",
-    )
