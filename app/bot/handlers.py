@@ -83,6 +83,11 @@ async def cmd_start(message: types.Message):
 
 @dp.message(F.text)
 async def handle_medical_query(message: types.Message):
+    
+    if medical_assistant is None:
+        await message.answer("⏳ <b>System is starting up...</b>\nPlease wait a minute and try again.")
+        return
+    
     user_id = message.from_user.id
     draft_id = message.message_id
     stop_event = asyncio.Event()

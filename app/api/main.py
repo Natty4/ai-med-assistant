@@ -16,7 +16,6 @@ from aiogram.types import Update
 from app.api.models import ChatRequest, ChatResponse
 
 from src.utils.redis_client import redis_client
-from app.bot.handlers import dp, bot, medical_assistant
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -26,34 +25,55 @@ medical_assistant = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global medical_assistant
+    # Import inside to prevent early loading
+    import app.bot.handlers as handlers 
+    from src.utils.redis_client import redis_client
+    
     logger.info("🚀 FAST START: Port 8080 is now opening...")
     
-    # Run heavy loading in a separate thread so Uvicorn can finish starting
     async def background_init():
-        global medical_assistant
         try:
+            # WEBHOOK CHECK
+            base_url = os.getenv("WEBHOOK_URL")
+            if base_url:
+                # webhook_path = f"{base_url.rstrip('/')}/webhook"
+                webhook_path = os.getenv('WEBHOOK_URL', '')
+                
+                # Fetch current status from Telegram
+                current_webhook = await handlers.bot.get_webhook_info()
+                
+                if current_webhook.url != webhook_path:
+                    logger.info(f"🔄 Webhook mismatch. Updating: {current_webhook.url} -> {webhook_path}")
+                    await handlers.bot.set_webhook(
+                        url=webhook_path,
+                        drop_pending_updates=True,
+                        allowed_updates=["message", "callback_query"]
+                    )
+                else:
+                    logger.info("✅ Webhook already correctly set. Skipping update.")
+            else:
+                logger.warning("⚠️ WEBHOOK_URL not found in env.")
+                
             logger.info("🧠 Loading heavy AI libraries...")
-            # LOCAL IMPORTS: This prevents the app from hanging on boot
             from src.synthesis.response_generator import ResponseGenerator
-            from scripts.bootstrap import bootstrap_pipeline
             
-            # Initialize Redis
-            from src.utils.redis_client import redis_client
             await redis_client.init()
-
-            if os.getenv("RUN_BOOTSTRAP", "false") == "true":
-                await asyncio.to_thread(bootstrap_pipeline)
-            
             await ResponseGenerator.initialize()
-            medical_assistant = ResponseGenerator()
+            
+            # CRITICAL: Update the variable INSIDE the handlers module
+            handlers.medical_assistant = ResponseGenerator()
+            
+            # Also update local global for the API endpoints
+            global medical_assistant
+            medical_assistant = handlers.medical_assistant
+            
             logger.info("✅ AI LOADED AND READY")
         except Exception as e:
             logger.error(f"❌ AI INIT FAILED: {e}")
 
-    # Fire and forget the heavy stuff
     asyncio.create_task(background_init())
     yield
+    await redis_client.close()
 
 app = FastAPI(lifespan=lifespan, title="Medical Assistant API + Webhook")
     
@@ -72,6 +92,7 @@ app.add_middleware(
 @app.post("/webhook")
 async def telegram_webhook(request: Request):
     try:
+        from app.bot.handlers import dp, bot
         data = await request.json()
         update = Update.model_validate(data) 
         await dp.feed_update(bot, update)
@@ -81,8 +102,14 @@ async def telegram_webhook(request: Request):
         return {"status": "error"}
 
 
-@app.post("/chat", response_model=ChatResponse)
+@app.post("/api/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
+    if not medical_assistant:
+        return {
+            "status": "error", 
+            "message": "AI is still initializing. Try again in 30 seconds."
+            }
+    
     structured = await asyncio.to_thread(
         medical_assistant.generate_structured,
         request.query
@@ -100,7 +127,7 @@ async def chat_endpoint(request: ChatRequest):
     }
     
 
-@app.get("/", methods=["GET", "HEAD"])
+@app.get("/")
 @app.get("/health")
 @app.get("/kaithheathcheck")
 async def health():
@@ -108,7 +135,7 @@ async def health():
     is_ready = medical_assistant is not None
     return {
         "status": "healthy" if is_ready else "initializing",
-        "service": "Medical Assistant",
+        "service": "AI Medical Assistant",
         "ready": is_ready
     }
     
