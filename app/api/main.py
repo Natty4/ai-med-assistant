@@ -4,65 +4,109 @@ import sys
 import os
 import uuid
 import time
-import json
 import logging
+from contextlib import asynccontextmanager
+from typing import Dict
+
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
+from aiogram.types import Update
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
-from contextlib import asynccontextmanager
-from app.api.models import ChatResponse, ChatRequest, ProfileUpdate
-from pydantic import BaseModel, Field
-from typing import List, Optional
 from src.synthesis.response_generator import ResponseGenerator
+from src.synthesis.response_generator import ResponseGenerator
+from app.bot.handlers import dp, bot, medical_assistant
+
+load_dotenv = __import__("dotenv").load_dotenv
+load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-app = FastAPI(
-    title="NHS-Based Medical RAG API",
-    description="Secure API for medical symptom analysis and triage guidance.",
-    version="1.0.0"
-)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global medical_assistant
+    
+    logger.info("🚀 Starting Medical Assistant with Webhook...")
+
+    # 1. Initialize Medical Assistant
+    ResponseGenerator.initialize()
+    medical_assistant = ResponseGenerator()
+
+    # 2. Smart Webhook Management
+    webhook_url = os.getenv("WEBHOOK_URL")
+    if not webhook_url:
+        logger.warning("⚠️ WEBHOOK_URL not set in .env — Running without webhook (polling mode)")
+    else:
+        try:
+            # Check current webhook
+            webhook_info = await bot.get_webhook_info()
+            
+            if webhook_info.url == webhook_url:
+                logger.info(f"✅ Webhook already set correctly")
+            else:
+                # Set or update webhook
+                await bot.set_webhook(
+                    url=webhook_url,
+                    drop_pending_updates=True,   # Clean old updates
+                    allowed_updates=["message", "callback_query"]
+                )
+                logger.info(f"🔄 Webhook successfully set/updated")
+        except Exception as e:
+            logger.error(f"❌ Failed to set webhook: {e}")
+
+    yield  # Application runs here
+
+    logger.info("🛑 Medical Assistant shutdown complete.")
+
+
+app = FastAPI(lifespan=lifespan, title="Medical Assistant API + Webhook")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In production, replace with UI URL
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Global singleton (pre-loaded)
-medical_assistant: ResponseGenerator = None
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Modern replacement for deprecated on_event('startup')"""
-    global medical_assistant
-    print("🚀 Starting FastAPI – Pre-loading Medical Assistant...")
-    ResponseGenerator.initialize()          # ← Pre-loads embeddings, FAISS, lexicon
-    medical_assistant = ResponseGenerator()
-    yield
-    print("🛑 FastAPI shutting down...")
 
-app = FastAPI(lifespan=lifespan)  # ← Apply lifespan
+@app.post("/webhook")
+async def telegram_webhook(request: Request):
+    try:
+        data = await request.json()
+        update = Update.model_validate(data) 
+        await dp.feed_update(bot, update)
+        return {"status": "ok"}
+    except Exception as e:
+        logger.error(f"Webhook processing error: {e}")
+        return {"status": "error"}
 
+
+# Health check
 @app.get("/health")
 def health_check():
-    return {"status": "healthy", "timestamp": time.time()}
+    return {
+        "status": "healthy",
+        "service": "Medical Assistant (Webhook Mode)"
+    }
+
+# Keep your existing /chat endpoint if needed
+from app.api.models import ChatRequest, ChatResponse
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
-    start_time = time.time()
-    session_id = request.session_id or str(uuid.uuid4())[:8]
-    
     structured = medical_assistant.generate_structured(request.query)
-    
     return {
         "query_id": structured["query_id"],
-        "session_id": session_id,
+        "session_id": request.session_id or str(uuid.uuid4())[:8],
         "condition_detected": structured["condition"],
         "urgency_level": structured["urgency_level"],
         "summary": structured["summary"],
@@ -71,46 +115,3 @@ async def chat_endpoint(request: ChatRequest):
         "sections": structured["sections"],
         "latency_ms": structured["latency_ms"]
     }
-
-@app.post("/chat/stream")
-async def chat_stream_endpoint(request: ChatRequest):
-    """
-    Streams the LLM response token-by-token for a 'typing' effect.
-    """
-    session_id = request.session_id or str(uuid.uuid4())[:8]
-
-    async def event_generator():
-        full_text = ""
-        
-        # We call a new streaming method in our generator
-        # Note: ChatGoogleGenerativeAI supports .astream()
-        async for chunk in medical_assistant.stream_generate(request.query):
-            content = chunk.content
-            full_text += content
-            
-            # Format as an SSE message
-            # 'data: ' is the standard prefix for Server-Sent Events
-            yield f"data: {json.dumps({'type': 'token', 'text': content})}\n\n"
-
-        # Final packet: Send the structured analysis after the stream finished
-        structured_blocks = medical_assistant._parse_to_blocks(full_text)
-        urgency = "LOW"
-        if "Urgency: HIGH" in full_text: urgency = "HIGH"
-        elif "Urgency: MEDIUM" in full_text: urgency = "MEDIUM"
-
-        final_metadata = {
-            "type": "final",
-            "session_id": session_id,
-            "urgency_level": urgency,
-            "blocks": structured_blocks
-        }
-        yield f"data: {json.dumps(final_metadata)}\n\n"
-
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
-
-@app.put("/profile")
-async def update_profile(profile: ProfileUpdate):
-    """Update the user's medical profile for personalized retrieval."""
-    medical_assistant.profile.update(profile.dict())
-    medical_assistant.save_profile()
-    return {"message": "Profile updated successfully"}
