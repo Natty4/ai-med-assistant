@@ -34,25 +34,26 @@ async def lifespan(app: FastAPI):
     async def background_init():
         try:
             # WEBHOOK CHECK
-            base_url = os.getenv("WEBHOOK_URL")
-            if base_url:
-                # webhook_path = f"{base_url.rstrip('/')}/webhook"
-                webhook_path = os.getenv('WEBHOOK_URL', '')
+            try:
+                base_url = os.getenv("WEBHOOK_URL")
+                if base_url:
+                    webhook_path = base_url
+                    try:
+                        current_info = await asyncio.wait_for(handlers.bot.get_webhook_info(), timeout=5.0)
+                        if current_info.url != webhook_path:
+                            await handlers.bot.set_webhook(
+                                url=webhook_path,
+                                drop_pending_updates=True,
+                                allowed_updates=["message", "callback_query"]
+                            )
+                            logger.info("🛰️ Webhook updated")
+                        else:
+                            logger.info("✅ Webhook already correctly set. Skipping update.")
+                    except asyncio.TimeoutError:
+                        logger.error("⏱️ TG Webhook check timed out, moving to AI load...")
+            except Exception as e:
+                logger.error(f"⚠️ Webhook setup skipped: {e}")
                 
-                # Fetch current status from Telegram
-                current_webhook = await handlers.bot.get_webhook_info()
-                
-                if current_webhook.url != webhook_path:
-                    logger.info(f"🔄 Webhook mismatch. Updating: {current_webhook.url} -> {webhook_path}")
-                    await handlers.bot.set_webhook(
-                        url=webhook_path,
-                        drop_pending_updates=True,
-                        allowed_updates=["message", "callback_query"]
-                    )
-                else:
-                    logger.info("✅ Webhook already correctly set. Skipping update.")
-            else:
-                logger.warning("⚠️ WEBHOOK_URL not found in env.")
                 
             logger.info("🧠 Loading heavy AI libraries...")
             from src.synthesis.response_generator import ResponseGenerator
