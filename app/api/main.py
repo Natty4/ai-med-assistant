@@ -26,15 +26,21 @@ medical_assistant = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Import inside to prevent early loading
-    import app.bot.handlers as handlers 
-    from src.utils.redis_client import redis_client
     
     logger.info("🚀 FAST START: Port 8080 is now opening...")
+
+    asyncio.create_task(background_init())
+    yield
+    await redis_client.close()
+
+app = FastAPI(lifespan=lifespan, title="Medical Assistant API + Webhook")
     
-    async def background_init():
+
+async def background_init():
         try:
-            # WEBHOOK CHECK
+            # Import inside to prevent early loading
+            import app.bot.handlers as handlers 
+            from src.utils.redis_client import redis_client
             try:
                 base_url = os.getenv("WEBHOOK_URL")
                 if base_url:
@@ -72,15 +78,6 @@ async def lifespan(app: FastAPI):
             logger.info("✅ AI LOADED AND READY")
         except Exception as e:
             logger.error(f"❌ AI INIT FAILED: {e}")
-
-    asyncio.create_task(background_init())
-    yield
-    await redis_client.close()
-
-app = FastAPI(lifespan=lifespan, title="Medical Assistant API + Webhook")
-    
-
-
 
 app.add_middleware(
     CORSMiddleware,
