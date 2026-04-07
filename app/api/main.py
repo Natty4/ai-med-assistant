@@ -9,70 +9,53 @@ import asyncio
 from contextlib import asynccontextmanager
 from typing import Dict
 
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-
-from aiogram import Bot, Dispatcher
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
 from aiogram.types import Update
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from scripts.bootstrap import bootstrap_pipeline
-from src.synthesis.response_generator import ResponseGenerator
 from src.utils.redis_client import redis_client
-from app.api.models import ChatRequest, ChatResponse
 from app.bot.handlers import dp, bot, medical_assistant
 
-load_dotenv = __import__("dotenv").load_dotenv
+from dotenv import load_dotenv
 load_dotenv()
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
+medical_assistant = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global medical_assistant
+    logger.info("🚀 FAST START: Port 8080 is now opening...")
     
-    logger.info("⚡ Fast-starting Web Server...")
-    
-    # Initialize Redis (usually fast)
-    await redis_client.init()
-
-    # Move HEAVY work to a background task so it doesn't block Port 8080
-    async def load_ai_logic():
+    # Run heavy loading in a separate thread so Uvicorn can finish starting
+    async def background_init():
         global medical_assistant
         try:
-            logger.info("🧠 Loading AI Models in background...")
-            if os.getenv("RUN_BOOTSTRAP", "true") == "true":
-                # Offload synchronous bootstrap to a thread
+            logger.info("🧠 Loading heavy AI libraries...")
+            # LOCAL IMPORTS: This prevents the app from hanging on boot
+            from src.synthesis.response_generator import ResponseGenerator
+            from scripts.bootstrap import bootstrap_pipeline
+            
+            # Initialize Redis
+            from src.utils.redis_client import redis_client
+            await redis_client.init()
+
+            if os.getenv("RUN_BOOTSTRAP", "false") == "true":
                 await asyncio.to_thread(bootstrap_pipeline)
             
             await ResponseGenerator.initialize()
             medical_assistant = ResponseGenerator()
-            logger.info("✅ AI Ready!")
+            logger.info("✅ AI LOADED AND READY")
         except Exception as e:
-            logger.error(f"❌ Initialization Failed: {e}")
+            logger.error(f"❌ AI INIT FAILED: {e}")
 
-    # Start the task without 'awaiting' it
-    asyncio.create_task(load_ai_logic())
+    # Fire and forget the heavy stuff
+    asyncio.create_task(background_init())
+    yield
 
-    # Webhook setup (do it quickly)
-    webhook_url = os.getenv("WEBHOOK_URL")
-    if webhook_url:
-        try:
-            await bot.set_webhook(url=webhook_url, drop_pending_updates=True)
-            logger.info("🔄 Webhook set")
-        except Exception as e:
-            logger.error(f"Webhook error: {e}")
-
-    yield 
-    logger.info("🛑 Shutting down...")
-    await redis_client.close()
-
+app = FastAPI(lifespan=lifespan)
     
 
 
@@ -99,10 +82,12 @@ async def telegram_webhook(request: Request):
         return {"status": "error"}
 
 
-# Health check
+
+# MANDATORY: Add every path Leapcell is trying to hit
 @app.get("/")
 @app.get("/health")
-async def health_check():
+@app.get("/kaithheathcheck") # <--- Match your log error exactly
+async def health():
     # If medical_assistant isn't ready, we are "starting" but the port is open
     is_ready = medical_assistant is not None
     return {
@@ -110,6 +95,7 @@ async def health_check():
         "service": "Medical Assistant",
         "ready": is_ready
     }
+    
 
 
 # @app.post("/chat", response_model=ChatResponse)
