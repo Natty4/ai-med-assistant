@@ -8,9 +8,13 @@ from typing import List, Dict
 from collections import defaultdict
 
 from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_chroma import Chroma
 from langchain_community.vectorstores import FAISS
 from langchain_core.documents import Document
 from config.settings import INDEX_DIR, EMBEDDING_MODEL, RETRIEVER_K
+
+
+
 
 class MedicalRetriever:
     def __init__(self):
@@ -21,75 +25,76 @@ class MedicalRetriever:
             model_kwargs={'device': 'cpu'},
             encode_kwargs={'normalize_embeddings': True}
         )
-        print("   → Loading FAISS index...")
-        self.vectorstore = FAISS.load_local(
-            str(INDEX_DIR),
-            self.embeddings,
-            allow_dangerous_deserialization=True
-        )
-        # For Object-as-a-Doc, K should be small (e.g., 3-5)
-        self.k = 5 
-        print(f"   → Retriever ready (Object-as-a-Doc mode, k={self.k})")
-
-    def get_embeddings(self):
-        return self.embeddings
-    
-    def retrieve_with_personalization(self, query: str, profile: dict = None, 
-                                     severity: str = "LOW", symptoms: List[str] = None) -> Dict[str, List[Document]]:
-        """Simplified retrieval for full-context documents"""
         
-        # 1. Build an augmented query
+        print(f"   → Connecting to ChromaDB at {INDEX_DIR}...")
+        self.vectorstore = Chroma(
+            persist_directory=str(INDEX_DIR),
+            embedding_function=self.embeddings,
+            collection_name="nhs_medical_data"
+        )
+        
+        # Retrieval counts
+        self.k_symptom = 4
+        self.k_condition = 4
+
+    def retrieve_with_personalization(self, query: str, profile: dict = None, 
+                                      symptoms: List[str] = None) -> Dict[str, List[Document]]:
+        """
+        Retrieves documents using native ChromaDB metadata filtering.
+        """
         search_query = query
         if symptoms:
             search_query += " " + " ".join(symptoms)
-        
-        # 2. Initial retrieval (get more than K to allow for scoring/filtering)
-        raw_docs = self.vectorstore.similarity_search(search_query, k=10)
-        
-        # 3. Score and Rank
+
+        # 1. Native Metadata Filtering: Retrieve Symptoms
+        symptom_docs = self.vectorstore.similarity_search(
+            search_query, 
+            k=self.k_symptom,
+            filter={"page_type": "symptom"}
+        )
+
+        # 2. Native Metadata Filtering: Retrieve Conditions
+        condition_docs = self.vectorstore.similarity_search(
+            search_query, 
+            k=self.k_condition,
+            filter={"page_type": "condition"}
+        )
+
+        # 3. Optional: Personalization Reranking
+        # We can still apply your custom scoring to the filtered results
+        all_retrieved = symptom_docs + condition_docs
+        final_results = self._rerank_results(all_retrieved, search_query, profile, symptoms)
+
+        return final_results
+
+    def _rerank_results(self, docs, query, profile, symptoms):
+        """Applies your custom business logic/boosts to the filtered subset."""
         scored_docs = []
-        for doc in raw_docs:
+        for doc in docs:
             score = 1.0
             content_lower = doc.page_content.lower()
-            
-            # Boost if the specific condition name is in the query
             condition_name = doc.metadata.get("condition", "").lower()
-            if condition_name in search_query.lower():
-                score += 5.0
-            
-            # Boost based on keyword overlap (Symptoms)
+
+            if condition_name in query.lower(): score += 5.0
             if symptoms:
                 match_count = sum(1 for s in symptoms if s.lower() in content_lower)
                 score += (match_count * 2.0)
-
-            # Personalization Boost
+            
             if profile:
-                # Boost if user has a chronic condition that matches this document
-                chronic = profile.get("chronic_conditions", [])
-                if any(c.lower() in condition_name for c in chronic):
-                    score += 3.0
-                
                 # Age-based risk boosting
                 age = profile.get("age", 0)
                 if (age > 65 or age < 12) and doc.metadata.get("risk_level") == "HIGH":
-                    score += 2.0
+                    score += 3.0
 
             scored_docs.append((doc, score))
-        
-        # Sort by the new calculated score
+
+        # Sort and return categorized dictionary
         scored_docs.sort(key=lambda x: x[1], reverse=True)
         
-        # 4. Final Selection
-        # We split them into categories just to maintain compatibility with your LLM prompt
-        final_docs = [d for d, s in scored_docs[:self.k]]
-        
-        result = {
-            "symptom_docs": [d for d in final_docs if d.metadata.get("page_type") == "symptom"],
-            "condition_docs": [d for d in final_docs if d.metadata.get("page_type") == "condition"]
+        return {
+            "symptom_docs": [d for d, s in scored_docs if d.metadata.get("page_type") == "symptom"],
+            "condition_docs": [d for d, s in scored_docs if d.metadata.get("page_type") == "condition"]
         }
-        
-        self._log_retrieval(query, symptoms, result, scored_docs[:10])
-        return result
 
     def _log_retrieval(self, query, symptoms, result, top_scored):
         now = datetime.now()

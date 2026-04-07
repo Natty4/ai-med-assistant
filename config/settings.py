@@ -20,7 +20,8 @@ NHS_CONDITIONS_BASE_URL = "https://www.nhs.uk/conditions/"
 DATA_RAW_SYMPTOM_DIR = BASE_DIR / "data/raw/nhs_symptoms"
 DATA_RAW_CONDITIONS_DIR = BASE_DIR / "data/raw/nhs_conditions"
 DATA_PROCESSED_DIR = BASE_DIR / "data/processed"
-INDEX_DIR = BASE_DIR / "data/indexes/faiss_index"
+# INDEX_DIR = BASE_DIR / "data/indexes/faiss_index"
+INDEX_DIR = BASE_DIR / "data/indexes/chroma_index"
 SYMPTOM_LEXICON_PATH = DATA_PROCESSED_DIR / "symptom_lexicon.json"
 
 
