@@ -8,12 +8,12 @@ import logging
 import asyncio
 from contextlib import asynccontextmanager
 from typing import Dict
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from aiogram.types import Update
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from app.api.models import ChatRequest, ChatResponse
 
 from src.utils.redis_client import redis_client
 from app.bot.handlers import dp, bot, medical_assistant
@@ -81,9 +81,26 @@ async def telegram_webhook(request: Request):
         return {"status": "error"}
 
 
+@app.post("/chat", response_model=ChatResponse)
+async def chat_endpoint(request: ChatRequest):
+    structured = await asyncio.to_thread(
+        medical_assistant.generate_structured,
+        request.query
+    )
+    return {
+        "query_id": structured["query_id"],
+        "session_id": request.session_id or str(uuid.uuid4())[:8],
+        "condition_detected": structured["condition"],
+        "urgency_level": structured["urgency_level"],
+        "summary": structured["summary"],
+        "urgency_friendly": structured["urgency_friendly"],
+        "available_sections": structured["available_sections"],
+        "sections": structured["sections"],
+        "latency_ms": structured["latency_ms"]
+    }
+    
 
-# MANDATORY: Add every path Leapcell is trying to hit
-@app.get("/")
+@app.get("/", methods=["GET", "HEAD"])
 @app.get("/health")
 @app.get("/kaithheathcheck")
 async def health():
@@ -109,22 +126,4 @@ if __name__ == "__main__":
         log_level="info"
     )
         
-        
-# @app.post("/chat", response_model=ChatResponse)
-# async def chat_endpoint(request: ChatRequest):
-#     structured = await asyncio.to_thread(
-#         medical_assistant.generate_structured,
-#         request.query
-#     )
-#     return {
-#         "query_id": structured["query_id"],
-#         "session_id": request.session_id or str(uuid.uuid4())[:8],
-#         "condition_detected": structured["condition"],
-#         "urgency_level": structured["urgency_level"],
-#         "summary": structured["summary"],
-#         "urgency_friendly": structured["urgency_friendly"],
-#         "available_sections": structured["available_sections"],
-#         "sections": structured["sections"],
-#         "latency_ms": structured["latency_ms"]
-#     }
     
