@@ -21,5 +21,5 @@ pymupdf
 fastapi
 aiogram
 redis>=5.2.0
-aioredis>=2.1.0
+aioredis
 
