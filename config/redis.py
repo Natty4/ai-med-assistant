@@ -6,20 +6,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Build the URL from individual pieces to be safer
-REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-REDIS_PORT = os.getenv("REDIS_PORT", "6379")
-REDIS_PASS = os.getenv("REDIS_PASSWORD", "")
+# Get individual pieces
+REDIS_HOST = os.getenv("REDIS_HOST")
+REDIS_PORT = int(os.getenv("REDIS_PORT", 6379)) # Force integer here
+REDIS_PASS = os.getenv("REDIS_PASSWORD")
+# Leapcell usually requires SSL for external connections
+REDIS_SSL = os.getenv("REDIS_SSL", "true").lower() == "true" 
 
-if REDIS_PASS:
-    # Notice the : before the password
-    REDIS_URL = f"redis://:{REDIS_PASS}@{REDIS_HOST}:{REDIS_PORT}"
-else:
-    REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}"
-    
-
-# TTLs (seconds)
-USER_PROFILE_TTL = 60 * 60 * 24 * 30      # 30 days
-QUERY_HISTORY_TTL = 60 * 60 * 24 * 90    # 90 days
-SESSION_TTL = 60 * 60 * 24                # 24 hours
-NHS_CACHE_TTL = 60 * 60 * 24 * 7          # 7 days
+# TTLs stay the same
+USER_PROFILE_TTL = 60 * 60 * 24 * 30
+QUERY_HISTORY_TTL = 60 * 60 * 24 * 90
+SESSION_TTL = 60 * 60 * 24
+NHS_CACHE_TTL = 60 * 60 * 24 * 7

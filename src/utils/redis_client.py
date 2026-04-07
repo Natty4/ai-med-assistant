@@ -7,8 +7,15 @@ import redis.asyncio as aioredis
 import redis
 
 from config.redis import (
-    REDIS_URL, USER_PROFILE_TTL, QUERY_HISTORY_TTL,
-    SESSION_TTL, NHS_CACHE_TTL
+    REDIS_HOST, 
+    REDIS_PORT, 
+    REDIS_PASS, 
+    REDIS_SSL,
+    USER_PROFILE_TTL,
+    QUERY_HISTORY_TTL,
+    SESSION_TTL,
+    NHS_CACHE_TTL
+    
 )
 
 logger = logging.getLogger(__name__)
@@ -26,16 +33,21 @@ class RedisClient:
         if self._initialized:
             return
         try:
-            # Force both to initialize inside the async loop
-            self.async_redis = aioredis.from_url(REDIS_URL, decode_responses=True)
-            # Only use sync if absolutely necessary for a library, 
-            # otherwise stick to async_redis for everything.
-            self.sync_redis = redis.from_url(REDIS_URL, decode_responses=True)
+            # Leapcell Style - Explicit Parameters
+            self.async_redis = aioredis.Redis(
+                host=REDIS_HOST,
+                port=REDIS_PORT,
+                password=REDIS_PASS,
+                ssl=REDIS_SSL,
+                decode_responses=True,
+                # Adding timeout settings helps prevent Render hanging
+                socket_connect_timeout=5
+            )
             
-            # Ping to verify connection
+            # Ping to verify
             await self.async_redis.ping()
             self._initialized = True
-            logger.info("✅ Redis connected successfully")
+            logger.info(f"✅ Redis connected to {REDIS_HOST}")
         except Exception as e:
             logger.error(f"❌ Redis connection failed: {e}")
             raise e
