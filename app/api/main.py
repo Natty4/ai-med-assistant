@@ -37,48 +37,43 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     global medical_assistant
     
-    logger.info("🚀 Starting Initializing Services...")
+    logger.info("⚡ Fast-starting Web Server...")
     
-    # 1. Initialize Redis FIRST (Fast and required for everything else)
+    # Initialize Redis (usually fast)
     await redis_client.init()
 
-    # 2. Run Bootstrap/Heavy Loading in a way that doesn't block the startup
-    # move the heavy initialization to a background task so the API starts 
-    # and responds to health checks while the models load.
-    async def heavy_init():
+    # Move HEAVY work to a background task so it doesn't block Port 8080
+    async def load_ai_logic():
         global medical_assistant
         try:
+            logger.info("🧠 Loading AI Models in background...")
             if os.getenv("RUN_BOOTSTRAP", "true") == "true":
-                # Run in a thread to not block the event loop
+                # Offload synchronous bootstrap to a thread
                 await asyncio.to_thread(bootstrap_pipeline)
             
-            # Initialize AI Components
             await ResponseGenerator.initialize()
             medical_assistant = ResponseGenerator()
-            logger.info("✅ Medical Assistant fully loaded in background")
+            logger.info("✅ AI Ready!")
         except Exception as e:
-            logger.error(f"❌ Background Init Failed: {e}")
+            logger.error(f"❌ Initialization Failed: {e}")
 
-    # Start the loading process
-    init_task = asyncio.create_task(heavy_init())
+    # Start the task without 'awaiting' it
+    asyncio.create_task(load_ai_logic())
 
-    # 3. Webhook Management (Keep it async)
+    # Webhook setup (do it quickly)
     webhook_url = os.getenv("WEBHOOK_URL")
     if webhook_url:
         try:
-            await bot.set_webhook(
-                url=webhook_url,
-                drop_pending_updates=True,
-                allowed_updates=["message", "callback_query"]
-            )
-            logger.info(f"🔄 Webhook successfully set")
+            await bot.set_webhook(url=webhook_url, drop_pending_updates=True)
+            logger.info("🔄 Webhook set")
         except Exception as e:
-            logger.error(f"❌ Failed to set webhook: {e}")
+            logger.error(f"Webhook error: {e}")
 
-    yield  # API IS NOW "UP" AND RESPONDING TO LEAPCELL
-
+    yield 
     logger.info("🛑 Shutting down...")
     await redis_client.close()
+
+    
 
 
 app = FastAPI(lifespan=lifespan, title="Medical Assistant API + Webhook")
@@ -117,23 +112,23 @@ async def health_check():
     }
 
 
-@app.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(request: ChatRequest):
-    structured = await asyncio.to_thread(
-        medical_assistant.generate_structured,
-        request.query
-    )
-    return {
-        "query_id": structured["query_id"],
-        "session_id": request.session_id or str(uuid.uuid4())[:8],
-        "condition_detected": structured["condition"],
-        "urgency_level": structured["urgency_level"],
-        "summary": structured["summary"],
-        "urgency_friendly": structured["urgency_friendly"],
-        "available_sections": structured["available_sections"],
-        "sections": structured["sections"],
-        "latency_ms": structured["latency_ms"]
-    }
+# @app.post("/chat", response_model=ChatResponse)
+# async def chat_endpoint(request: ChatRequest):
+#     structured = await asyncio.to_thread(
+#         medical_assistant.generate_structured,
+#         request.query
+#     )
+#     return {
+#         "query_id": structured["query_id"],
+#         "session_id": request.session_id or str(uuid.uuid4())[:8],
+#         "condition_detected": structured["condition"],
+#         "urgency_level": structured["urgency_level"],
+#         "summary": structured["summary"],
+#         "urgency_friendly": structured["urgency_friendly"],
+#         "available_sections": structured["available_sections"],
+#         "sections": structured["sections"],
+#         "latency_ms": structured["latency_ms"]
+#     }
     
 
 if __name__ == "__main__":
