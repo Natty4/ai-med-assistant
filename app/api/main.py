@@ -11,6 +11,7 @@ from typing import Dict
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from aiogram.types import Update
 from app.api.models import ChatRequest, ChatResponse
@@ -106,10 +107,14 @@ async def telegram_webhook(request: Request):
 @app.post("/api/v1/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
     if not medical_assistant:
-        return {
-            "status": "error", 
-            "message": "AI is still initializing. Try again in 30 seconds."
+        # return a 503 (Service Unavailable)
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "error", 
+                "message": "AI is still initializing. Please try again in 30 seconds."
             }
+        )
     
     structured = await asyncio.to_thread(
         medical_assistant.generate_structured,
