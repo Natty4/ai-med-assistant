@@ -103,7 +103,7 @@ async def telegram_webhook(request: Request):
         return {"status": "error"}
 
 
-@app.post("/api/chat", response_model=ChatResponse)
+@app.post("/api/v1/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
     if not medical_assistant:
         return {

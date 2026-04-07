@@ -17,8 +17,11 @@ class SymptomExtractor:
         #     encode_kwargs={'normalize_embeddings': True}
         # )
         
-        embeddings = embeddings or GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-        
+        if embeddings:
+            self.embeddings = embeddings
+        else:
+            self.embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+            
         self.lexicon: list[str] = []
         self.lexicon_emb_np = np.array([])
 
