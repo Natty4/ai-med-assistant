@@ -46,6 +46,22 @@ class MedicalService:
         filtered = [w for w in words if w not in self.stop_words]
         return " ".join(filtered) if filtered else text
 
+    async def get_token(self):
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://icdaccessmanagement.who.int/connect/token",
+                data={
+                    'client_id': self.icd_id, 
+                    'client_secret': self.icd_secret, 
+                    'scope': 'icdapi_access', 
+                    'grant_type': 'client_credentials'
+                },
+                timeout=10.0
+            )
+            resp.raise_for_status()
+            self.token = resp.json()['access_token']
+            return self.token
+        
     async def get_grounded_response(self, user_text):
         # --- GATEKEEPER STEP ---
         if not self._is_valid_query(user_text):
