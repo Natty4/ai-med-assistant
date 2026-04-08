@@ -2,15 +2,17 @@
 
 import asyncio
 import random
+import logging
 from aiogram import Router, types
 from aiogram.methods import SendMessageDraft
 from aiogram.enums import ParseMode, ChatAction
 from aiogram.filters import Command
 from app.core.services import medical_service
 
-
+logger = logging.getLogger(__name__)
 
 router = Router()
+
 
 async def animate_loading(message: types.Message, draft_id: int, stop_event: asyncio.Event):
     stages = ["🔍 Analyzing", "🧠 Matching conditions", "📚 Preparing response"]
@@ -47,9 +49,8 @@ async def cmd_start(message: types.Message):
     
 @router.message()
 async def handle_user_query(message: types.Message):
-    # Gatekeeper check
     if not medical_service._is_valid_query(message.text):
-        await message.answer("<b>Hello!</b> Please describe your symptoms or medical query.")
+        await message.answer("<b>Hello!</b> Please describe your symptoms.", parse_mode=ParseMode.HTML)
         return
 
     draft_id = message.message_id
@@ -61,15 +62,17 @@ async def handle_user_query(message: types.Message):
     )
 
     try:
-        # Perform the logic (1 LLM call inside)
+        # Get response (handles its own internal API errors)
         response_text = await medical_service.get_grounded_response(message.text)
         
         stop_event.set()
         await anim_task
 
+        # Success: Send final response
         await message.answer(response_text, parse_mode=ParseMode.HTML)
         
     except Exception as e:
+        logger.error(f"Handler error: {e}")
         stop_event.set()
         await anim_task
-        await message.answer("⚠️ An error occurred. Please try again.")
+        await message.answer("<b>Wait a moment...</b>\nSomething went wrong. Please try rephrasing your concern.")

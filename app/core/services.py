@@ -63,19 +63,15 @@ class MedicalService:
             return self.token
         
     async def get_grounded_response(self, user_text):
-        # --- GATEKEEPER STEP ---
         if not self._is_valid_query(user_text):
-            return (
-                "<b>I'm ready to help!</b>\n\n"
-                "Please describe your symptoms or a medical condition \n"
-                "<i>(e.g., 'I have a sharp pain in my lower back' or 'Tell me about diabetes').</i>\n "
-                "This helps me provide accurate ICD-11 information."
-            )
+            return ("<b>I'm ready to help!</b>\n\n"
+                    "Please describe your symptoms briefly. This helps me "
+                    "provide accurate ICD-11 information.")
 
-        # Pythonic Cleaning (No LLM used here)
         search_query = self._clean_query(user_text)
-        logger.info(f"Cleaned Query for ICD: {search_query}")
-        
+        icd_context = None
+        error_flag = False
+
         try:
             token = await self.get_token()
             headers = {
@@ -84,28 +80,44 @@ class MedicalService:
                 'API-Version': 'v2'
             }
             
-            # ICD-11 Search
             async with httpx.AsyncClient() as client:
+                # Search with Error Handling
                 search_resp = await client.get(
                     "https://id.who.int/icd/entity/search", 
                     headers=headers, 
                     params={'q': search_query, 'useFoundation': 'true'},
-                    timeout=10.0
+                    timeout=8.0
                 )
                 
-                icd_context = "No specific match found."
                 if search_resp.status_code == 200:
                     search_data = search_resp.json()
                     if search_data.get('destinationEntities'):
                         entity_url = search_data['destinationEntities'][0]['id']
-                        detail_resp = await client.get(entity_url, headers=headers)
+                        # 2. Detail Fetch with Error Handling
+                        detail_resp = await client.get(entity_url, headers=headers, timeout=5.0)
                         if detail_resp.status_code == 200:
                             icd_context = detail_resp.json()
+                elif search_resp.status_code != 404:
+                    # Log unexpected status codes (500, 401, etc)
+                    logger.warning(f"ICD API returned status: {search_resp.status_code}")
+                    error_flag = True
 
-            # Single LLM Call with HTML Instructions
-            final_prompt = f"""
+        except (httpx.RequestError, httpx.TimeoutException) as e:
+            logger.error(f"Network error accessing ICD API: {e}")
+            error_flag = True
+        except Exception as e:
+            logger.error(f"Unexpected error: {e}")
+            error_flag = True
+
+        # --- REFINED PROMPT FOR ERRORS ---
+        # We tell the LLM if the database was unreachable so it can pivot gracefully.
+        db_status = "UNAVAILABLE" if error_flag else "AVAILABLE"
+        context_data = icd_context if icd_context else "No specific match in database."
+
+        final_prompt = f"""
             SYSTEM ROLE: Professional Medical Assistant.
-            CONTEXT (ICD-11 Data): {icd_context}
+            DATABASE_STATUS: {db_status}
+            CONTEXT (ICD-11 Data): {context_data}
             USER INPUT: {user_text}
             
             TASK:
@@ -113,23 +125,23 @@ class MedicalService:
             - Use bolding for headers.
             - Structure: 
               1. A brief empathetic acknowledgment.
-              2. "Potential Classification" (Based on ICD-11 data).
+              2. "Classification/Potential Condition" (Based on ICD-11 data).
               3. "Insights" (Simple explanation).
               4. "Follow-up" (One question if only in the ICD-11 data or applicable).
-              5. End with a Disclaimer <i>(Small text).</i> in a separate paragraph.
+              5. End with <blockquote expandable>DISCLAIMER: ...</blockquote>
             
             IMPORTANT: Do not use Markdown symbols. Use ONLY HTML.
             """
             
+        try:
             response = self.client.models.generate_content(
                 model=settings.LLMODEL, 
                 contents=final_prompt
             )
             return response.text
-
         except Exception as e:
-            logger.error(f"Error in service: {e}")
-            return "I encountered a technical hiccup. Please try again in a moment."
+            logger.error(f"Gemini API Error: {e}")
+            return "⚠️ <b>humm</b>\nI'm experiencing unusually high traffic right now and am at full capacity. Please try again in a few minutes."
 
 # Singleton Instance
 medical_service = MedicalService(
