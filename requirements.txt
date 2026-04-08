@@ -1,8 +1,4 @@
 # requirements.txt
-# --extra-index-url https://download.pytorch.org/whl/cpu
-# torch and torchvision removed → not needed anymore
-# sentence-transformers removed
-# langchain-huggingface removed
 
 numpy<2.0.0
 pydantic>=2.0,<2.10

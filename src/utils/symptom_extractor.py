@@ -18,13 +18,6 @@ class SymptomExtractor:
             encode_kwargs={'normalize_embeddings': True}
         )
         
-        # if embeddings:
-        #     self.embeddings = embeddings
-        # else:
-        #     self.embeddings = GoogleGenerativeAIEmbeddings(
-        #         model="models/gemini-embedding-001",
-        #         google_api_key=os.getenv("GOOGLE_API_KEY")
-        #     )
             
         self.lexicon: list[str] = []
         self.lexicon_emb_np = np.array([])
