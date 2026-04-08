@@ -18,7 +18,7 @@ dp.include_router(router)
 async def lifespan(app: FastAPI):
     # --- STARTUP ---
     current_webhook = await bot.get_webhook_info()
-    target_webhook = f"{settings.WEBHOOK_URL}/webhook"
+    target_webhook = f"{settings.WEBHOOK_URL}"
 
     if current_webhook.url != target_webhook:
         logger.info(f"🔄 Webhook mismatch. Updating: {current_webhook.url} -> {target_webhook}")
