@@ -20,16 +20,16 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 class MedicalRetriever:
     def __init__(self):
         print("   → Loading embeddings model...")
-        self.embeddings = HuggingFaceEmbeddings(
-            model_name=EMBEDDING_MODEL,
-            cache_folder="./models/embeddings_cache",
-            model_kwargs={'device': 'cpu'},
-            encode_kwargs={'normalize_embeddings': True}
-        )
-        # self.embeddings = GoogleGenerativeAIEmbeddings(
-        #         model="models/gemini-embedding-001",
-        #         google_api_key=os.getenv("GOOGLE_API_KEY")
-        #     )
+        # self.embeddings = HuggingFaceEmbeddings(
+        #     model_name=EMBEDDING_MODEL,
+        #     cache_folder="./models/embeddings_cache",
+        #     model_kwargs={'device': 'cpu'},
+        #     encode_kwargs={'normalize_embeddings': True}
+        # )
+        self.embeddings = GoogleGenerativeAIEmbeddings(
+                model="models/gemini-embedding-001",
+                google_api_key=os.getenv("GOOGLE_API_KEY")
+            )
         
         print(f"   → Connecting to ChromaDB at {INDEX_DIR}...")
         self.vectorstore = Chroma(

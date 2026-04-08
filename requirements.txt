@@ -1,7 +1,8 @@
---extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.2.1+cpu
-torchvision==0.17.1+cpu
-sentence-transformers==2.5.1
+# requirements.txt
+# --extra-index-url https://download.pytorch.org/whl/cpu
+# torch and torchvision removed → not needed anymore
+# sentence-transformers removed
+# langchain-huggingface removed
 
 numpy<2.0.0
 pydantic>=2.0,<2.10
@@ -14,11 +15,10 @@ python-dotenv
 redis>=5.2.0
 aioredis
 
-# RAG Stack
+# RAG Stack (only Google now)
 langchain
 langchain-community
 langchain-chroma
-langchain-huggingface
 langchain-google-genai
 google-generativeai
 rank-bm25
@@ -28,5 +28,3 @@ beautifulsoup4
 requests
 tqdm
 rich
-
-

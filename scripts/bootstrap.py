@@ -1,5 +1,9 @@
+# scripts/bootstrap.py
+
 import os
+import sys
 import logging
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from src.ingestion.structurer import run_structuring
 from src.indexing.vector_store import build_vector_store
@@ -23,3 +27,5 @@ def bootstrap_pipeline():
     build_vector_store()
 
     logger.info("✅ Bootstrap complete")
+    
+bootstrap_pipeline()

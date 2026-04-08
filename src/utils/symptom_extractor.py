@@ -12,19 +12,19 @@ class SymptomExtractor:
     """Robust symptom extractor with auto-fallback."""
     
     def __init__(self, embeddings: HuggingFaceEmbeddings = None):
-        self.embeddings = embeddings or HuggingFaceEmbeddings(
-            model_name=EMBEDDING_MODEL,
-            model_kwargs={'device': 'cpu'},
-            encode_kwargs={'normalize_embeddings': True}
-        )
+        # self.embeddings = embeddings or HuggingFaceEmbeddings(
+        #     model_name=EMBEDDING_MODEL,
+        #     model_kwargs={'device': 'cpu'},
+        #     encode_kwargs={'normalize_embeddings': True}
+        # )
         
-        # if embeddings:
-        #     self.embeddings = embeddings
-        # else:
-        #     self.embeddings = GoogleGenerativeAIEmbeddings(
-        #         model="models/gemini-embedding-001",
-        #         google_api_key=os.getenv("GOOGLE_API_KEY")
-        #     )
+        if embeddings:
+            self.embeddings = embeddings
+        else:
+            self.embeddings = GoogleGenerativeAIEmbeddings(
+                model="models/gemini-embedding-001",
+                google_api_key=os.getenv("GOOGLE_API_KEY")
+            )
             
         self.lexicon: list[str] = []
         self.lexicon_emb_np = np.array([])
