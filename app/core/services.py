@@ -4,6 +4,7 @@ import os
 import httpx
 from dotenv import load_dotenv
 from google import genai
+
 load_dotenv()
 LLM = os.getenv('LLMODEL')
 
@@ -45,3 +46,6 @@ class MedicalService:
             prompt = f"System: Use ICD-11 Data: {detail}. User said: {user_text}. Briefly explain and ask about follow-up axes. Include a disclaimer."
             response = self.client.models.generate_content(model=LLM, contents=prompt)
             return response.text
+        
+
+medical_service = MedicalService()
