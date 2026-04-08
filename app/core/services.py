@@ -4,7 +4,6 @@ import os
 import httpx
 from dotenv import load_dotenv
 from google import genai
-
 load_dotenv()
 LLM = os.getenv('LLMODEL')
 
@@ -47,5 +46,10 @@ class MedicalService:
             response = self.client.models.generate_content(model=LLM, contents=prompt)
             return response.text
         
+from app.core.config import settings
 
-medical_service = MedicalService()
+medical_service = MedicalService(
+    settings.ICD_CLIENT_ID,
+    settings.ICD_CLIENT_SECRET,
+    genai.Client(api_key=settings.GEMINI_API_KEY)
+)
