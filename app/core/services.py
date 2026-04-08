@@ -76,22 +76,24 @@ class MedicalService:
                     if detail_resp.status_code == 200:
                         icd_context = detail_resp.json()
 
-            # Empathetic Synthesis
-            final_prompt = f"""
-            SYSTEM ROLE: You are a professional, empathetic, and grounded Medical Assistant.
-            
-            CONTEXT (ICD-11): {icd_context}
-            USER INPUT: {user_text}
-            
-            TASK:
-            1. Acknowledge the user's concern with a supportive, professional tone.
-            2. Explain the most likely medical condition based on the ICD-11 data provided.
-            3. Ask one relevant follow-up question (location, duration, or severity).
-            4. End with a clear medical disclaimer: "DISCLAIMER: This tool provides AI-generated info for educational purposes and is not a substitute for professional medical advice."
-            """
-            
-            response = self.client.models.generate_content(model=LLM, contents=final_prompt)
-            return response.text
+                # Empathetic Synthesis
+                final_prompt = f"""
+                SYSTEM ROLE: You are a professional, empathetic, and grounded Medical Assistant.
+                
+                CONTEXT (ICD-11): {icd_context}
+                USER INPUT: {user_text}
+                
+                TASK:
+                1. Acknowledge the user's concern with a supportive, professional tone.
+                2. Explain the most likely medical condition based on the ICD-11 data provided.
+                3. Ask one relevant follow-up question (location, duration, or severity).
+                4. End with a clear medical disclaimer: "DISCLAIMER: This tool provides AI-generated info for educational purposes and is not a substitute for professional medical advice."
+                """
+                
+                response = self.client.models.generate_content(model=LLM, contents=final_prompt)
+                return response.text
+            else:
+                return "Hmm, I didn’t quite understand that. Could you rephrase or give me a bit more detail so I can help?"
 
 # Singleton Instance
 medical_service = MedicalService(
