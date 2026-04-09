@@ -17,7 +17,13 @@ redis_client = redis.Redis(
     port=settings.REDIS_PORT,
     db=settings.REDIS_DB,
     password=settings.REDIS_PASSWORD,
-    decode_responses=True
+    decode_responses=True,
+    # FIX FOR CROSS-PROVIDER CONNECTION:
+    socket_timeout=5.0,            # Don't wait forever for a response
+    socket_connect_timeout=5.0,    # Timeout if connection takes too long
+    socket_keepalive=True,         # Keep the TCP socket open
+    health_check_interval=30,      # Ping the server every 30s to keep connection alive
+    retry_on_timeout=True          # Automatically retry once if connection drops
 )
 
 class MedicalService:
