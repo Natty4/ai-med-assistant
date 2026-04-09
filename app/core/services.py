@@ -43,15 +43,15 @@ class MedicalService:
         clean_text = text.lower()
         
         # Check greetings
-        if any(greet in clean_text for greet in self.greetings):
-            return False
+        # if any(greet in clean_text for greet in self.greetings):
+        #     return False
 
         # Check against official ICD keywords
         user_words = set(re.findall(r'\b[a-z]{4,}\b', clean_text))
         
         # If the user has at least one word matching the ICD-11 MMS table
         has_medical_term = any(word in self.medical_vocabulary for word in user_words)
-        
+        logger.error(f"{has_medical_term, user_words} ----")
         return has_medical_term
 
     def _clean_query(self, text: str) -> str:
@@ -142,7 +142,7 @@ class MedicalService:
               2. "Classification/Potential Condition" (Based on ICD-11 data).
               3. "Insights" (Simple explanation).
               4. "Follow-up" (One question if only in the ICD-11 data or applicable).
-              5. End with <blockquote expandable>DISCLAIMER: ...</blockquote>
+              5. End with <blockquote expandable><b>DISCLAIMER</b>\n\n ...</blockquote>
             
             IMPORTANT: Do not use Markdown symbols. Use ONLY HTML.
             """
