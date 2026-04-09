@@ -66,17 +66,21 @@ class MedicalService:
             return {}
 
     async def update_user_profile(self, user_id: int, new_data: dict):
-        """Merges new extracted info into the existing profile."""
         if not redis_client: return
         
         current = await self.get_user_profile(user_id)
-        # Deep merge logic (simplified)
+        
         for key in ["demographics", "vitals"]:
             current[key].update(new_data.get(key, {}))
         
         for key in ["chronic_conditions", "medications"]:
             items = new_data.get(key, [])
-            current[key] = list(set(current[key] + items)) # Deduplicate
+            # Convert to set for deduplication, then back to list
+            current[key] = list(set(current[key] + items))
+
+        if "summary" in new_data:
+            current["history"].insert(0, new_data["summary"])
+            current["history"] = current["history"][:3] # Keep only 3
             
         await redis_client.set(f"profile:{user_id}", json.dumps(current))
         
@@ -148,7 +152,6 @@ class MedicalService:
                 # Try saving to Redis
                 if redis_client:
                     try:
-                        # await redis_client.setex(cache_key, 86400, json.dumps(icd_context))
                         await redis_client.set(cache_key, json.dumps(icd_context), ex=86400)
                     except:
                         pass
@@ -227,12 +230,16 @@ class MedicalService:
         match = re.search(r"JSON_UPDATE:\s*(\{.*?\})", raw_text, re.DOTALL)
         if match:
             try:
-                new_data = json.loads(match.group(1))
-                # Trigger background update (don't await to keep response fast)
+                json_str = match.group(1).strip()
+                new_data = json.loads(json_str)
+                # Trigger background update
                 asyncio.create_task(self.update_user_profile(user_id, new_data))
-                # Clean the JSON from the text shown to user
-                return raw_text.replace(match.group(0), "").strip()
-            except: pass
+                # Remove the JSON and any trailing "JSON_UPDATE:" text from user view
+                cleaned_text = re.sub(r"JSON_UPDATE:.*", "", raw_text, flags=re.DOTALL).strip()
+                return cleaned_text
+            except Exception as e:
+                logger.error(f"Failed to parse extracted JSON: {e}")
+        
         return raw_text
     
     async def _fetch_icd_data(self, query):
@@ -262,7 +269,7 @@ class MedicalService:
 
             # Fetch top 3 matches to build a "Knowledge Bundle"
             rich_bundle = []
-            for entity in results[:3]:
+            for entity in results[:6]:
                 # The ID returned is often http://id.who.int/... 
                 # follow_redirects=True handles the jump to https
                 try:
