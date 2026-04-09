@@ -2,6 +2,7 @@
 
 import os
 import re
+import json
 import httpx
 import logging
 from google import genai
@@ -15,6 +16,7 @@ class MedicalService:
         self.icd_secret = icd_secret
         self.client = genai.Client(api_key=gemini_key)
         self.token = None
+        self.load_local_keywords()
         
         # Phrases that don't need processing
         self.greetings = {
@@ -28,17 +30,29 @@ class MedicalService:
             "from", "pain", "my", "is", "it", "with", "and", "in", "on", "was"
         }
 
+    def load_local_keywords(self):
+        try:
+            with open("icd_keywords.json", "r") as f:
+                data = json.load(f)
+                # We use a set for O(1) lookup speed
+                self.medical_vocabulary = set(data["keywords"])
+        except FileNotFoundError:
+            self.medical_vocabulary = set()
+
     def _is_valid_query(self, text: str) -> bool:
-        """Determines if the query is substantive enough to process."""
-        clean_text = text.lower().strip()
+        clean_text = text.lower()
         
-        # Check if it's just a greeting
-        if clean_text in self.greetings or len(clean_text) < 3:
+        # Check greetings
+        if any(greet in clean_text for greet in self.greetings):
             return False
-            
-        # Check if it has at least one 'medical' indicator or enough length
-        # You can expand this list or use a regex for symptoms
-        return True
+
+        # Check against official ICD keywords
+        user_words = set(re.findall(r'\b[a-z]{4,}\b', clean_text))
+        
+        # If the user has at least one word matching the ICD-11 MMS table
+        has_medical_term = any(word in self.medical_vocabulary for word in user_words)
+        
+        return has_medical_term
 
     def _clean_query(self, text: str) -> str:
         """Removes common words to improve ICD-11 search accuracy."""
@@ -66,7 +80,7 @@ class MedicalService:
         if not self._is_valid_query(user_text):
             return ("<b>I'm ready to help!</b>\n\n"
                     "Please describe your symptoms briefly. This helps me "
-                    "provide accurate ICD-11 information.")
+                    "provide accurate information.")
 
         search_query = self._clean_query(user_text)
         icd_context = None
@@ -121,7 +135,7 @@ class MedicalService:
             USER INPUT: {user_text}
             
             TASK:
-            - Provide a structured response using Telegram (<b>, <i>, <u>, <code>).
+            - Provide a structured response using Telegram (<b>, <i>, <code>).
             - Use bolding for headers.
             - Structure: 
               1. A brief empathetic acknowledgment.
@@ -141,7 +155,7 @@ class MedicalService:
             return response.text
         except Exception as e:
             logger.error(f"Gemini API Error: {e}")
-            return "⚠️ <b>humm</b>\nI'm experiencing unusually high traffic right now and am at full capacity. Please try again in a few minutes."
+            return "⚠️ <b>humm</b>\nI'm currently experiencing high demand. Please wait and try again in a few minutes."
 
 # Singleton Instance
 medical_service = MedicalService(
