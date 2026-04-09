@@ -114,6 +114,13 @@ class MedicalService:
             return "<b>I'm ready to help!</b>\n\nPlease describe your symptoms briefly."
 
         search_query = self._clean_query(user_text)
+        if redis_client:
+            try:
+                # Increment the global search counter for this specific term
+                await redis_client.hincrby("stats:condition_searches", search_query, 1)
+            except Exception as e:
+                logger.warning(f"Failed to update global stats: {e}")
+                
         cache_key = f"icd_cache:{search_query.replace(' ', '_')}"
         icd_context = None
 

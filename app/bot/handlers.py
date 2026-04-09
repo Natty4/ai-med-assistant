@@ -96,21 +96,36 @@ async def cmd_ping_redis(message: types.Message):
 async def cmd_profile(message: types.Message):
     profile = await medical_service.get_user_profile(message.from_user.id)
     
-    if not profile.get("demographics") and not profile.get("chronic_conditions"):
-        await message.answer("📝 <b>Your health profile is empty.</b>\n"
-                             "As we chat, I will remember your health details.",
-                             parse_mode=ParseMode.HTML
-                             )
+    # Check if the profile is truly empty (all fields are empty/empty lists)
+    is_empty = (
+        not profile.get("demographics") and 
+        not profile.get("chronic_conditions") and 
+        not profile.get("medications")
+    )
+
+    if is_empty:
+        await message.answer(
+            "📝 <b>Your health profile is empty.</b>\n\n"
+            "<b>How to build it:</b> Just tell me things like <i>'I am 30 years old'</i> "
+            "or <i>'I take Aspirin daily'</i> during our conversation.",
+            parse_mode=ParseMode.HTML
+        )
         return
 
-    text = "📝 <b>Your Medical Profile</b>\n\n"
-    if profile['demographics']:
-        text += f"👤 <b>Info:</b> {profile['demographics']}\n"
-    if profile['chronic_conditions']:
-        text += f"🏥 <b>Conditions:</b> {', '.join(profile['chronic_conditions'])}\n"
-    if profile['medications']:
-        text += f"💊 <b>Meds:</b> {', '.join(profile['medications'])}\n"
+    text = "📝 <b>Your Personal Medical Profile</b>\n"
+    text += "<i>(Extracted from our conversations)</i>\n\n"
+    
+    if profile.get('demographics'):
+        demo = profile['demographics']
+        details = ", ".join([f"{k}: {v}" for k, v in demo.items()])
+        text += f"👤 <b>Demographics:</b> {details}\n"
         
+    if profile.get('chronic_conditions'):
+        text += f"🏥 <b>Conditions:</b> {', '.join(profile['chronic_conditions'])}\n"
+        
+    if profile.get('medications'):
+        text += f"💊 <b>Medications:</b> {', '.join(profile['medications'])}\n"
+
     await message.answer(text, parse_mode=ParseMode.HTML)
   
 @router.message(Command("start"))
@@ -126,6 +141,8 @@ async def handle_user_query(message: types.Message):
     # Session Storage: Track last query and increment total user requests
     user_id = message.from_user.id
     session_key = f"session:{user_id}"
+    clean_term = medical_service._clean_query(message.text)
+    await redis_client.hincrby("stats:condition_searches", clean_term, 1)
     await redis_client.hset(session_key, mapping={"last_query": message.text, "username": message.from_user.username or "unknown"})
     await redis_client.hincrby(session_key, "total_requests", 1)
 
