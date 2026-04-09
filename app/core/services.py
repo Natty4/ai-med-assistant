@@ -5,6 +5,7 @@ import re
 import json
 import httpx
 import logging
+import asyncio
 import redis.asyncio as redis
 from google import genai
 from app.core.config import settings
@@ -45,6 +46,40 @@ class MedicalService:
             headers={"Connection": "keep-alive"}
         )
 
+    async def get_user_profile(self, user_id: int) -> dict:
+        """Retrieves or initializes a medical profile for the user."""
+        profile_key = f"profile:{user_id}"
+        if not redis_client:
+            return {}
+        
+        try:
+            data = await redis_client.get(profile_key)
+            return json.loads(data) if data else {
+                "demographics": {},
+                "chronic_conditions": [],
+                "medications": [],
+                "vitals": {}, # Space for IoT data (Heart rate, etc)
+                "history": [] # Last 3 key medical summaries
+            }
+        except:
+            return {}
+
+    async def update_user_profile(self, user_id: int, new_data: dict):
+        """Merges new extracted info into the existing profile."""
+        if not redis_client: return
+        
+        current = await self.get_user_profile(user_id)
+        # Deep merge logic (simplified)
+        for key in ["demographics", "vitals"]:
+            current[key].update(new_data.get(key, {}))
+        
+        for key in ["chronic_conditions", "medications"]:
+            items = new_data.get(key, [])
+            current[key] = list(set(current[key] + items)) # Deduplicate
+            
+        await redis_client.set(f"profile:{user_id}", json.dumps(current))
+        
+        
     def load_local_keywords(self):
         try:
             with open("icd_keywords.json", "r") as f:
@@ -73,7 +108,7 @@ class MedicalService:
             resp.raise_for_status()
             return resp.json()['access_token']
 
-    async def get_grounded_response(self, user_text):
+    async def get_grounded_response(self, user_text, user_id: int):
         if not self._is_valid_query(user_text):
             return "<b>I'm ready to help!</b>\n\nPlease describe your symptoms briefly."
 
@@ -111,6 +146,7 @@ class MedicalService:
                         pass
 
         context_str = json.dumps(icd_context) if icd_context else "No specific match found."
+        
         final_prompt = f"""System: Use this ICD data: {context_str}. 
                         User said: {user_text}. 
                         Explain the condition simply.
@@ -118,6 +154,23 @@ class MedicalService:
                         End with <blockquote expandable><b>DISCLAIMER</b>\n\n ...</blockquote>
                         
                         IMPORTANT: Do not use Markdown symbols. Use ONLY HTML.
+                        """
+        # Fetch the patient profile
+        profile = await self.get_user_profile(user_id)
+        profile_summary = json.dumps(profile)
+
+        final_prompt = f"""System: You are a Medical Assistant. 
+                        Patient Profile: {profile_summary}.
+                        Reference ICD Data: {context_str}. 
+                        User said: {user_text}. 
+                        
+                        TASK:
+                        1. Respond to the user using the ICD data and their history.
+                        2. If the user mentioned new personal info (age, weight, existing disease, meds), 
+                           wrap that info in a JSON block at the end like this:
+                           JSON_UPDATE: {{"demographics": {{"age": 30}}, "chronic_conditions": ["Diabetes"]}}
+                        
+                        Response format: HTML only.
                         """
         
         last_error = None
@@ -128,7 +181,7 @@ class MedicalService:
                     model=model_name, 
                     contents=final_prompt
                 )
-                return response.text
+                return self._process_response_and_update_profile(response.text, user_id)
             except Exception as e:
                 last_error = e
                 # Check if error is related to Quota (429) or Server (503/500)
@@ -140,11 +193,23 @@ class MedicalService:
                     # If it's a different error (e.g., safety block), might want to stop
                     logger.error(f"❌ Fatal LLM Error with {model_name}: {e}")
                     break
-
+        
         logger.error(f"All models exhausted. Last error: {last_error}")
-        return "⚠️ <b>Service currently unavailable.</b>\nAI engines are under heavy load. Please try again in a moment."
+        return "⚠️ <b>Service currently unavailable.</b>\nPlease try again in a moment."
 
-
+    def _process_response_and_update_profile(self, raw_text, user_id):
+        # Extract JSON_UPDATE using regex
+        match = re.search(r"JSON_UPDATE:\s*(\{.*?\})", raw_text, re.DOTALL)
+        if match:
+            try:
+                new_data = json.loads(match.group(1))
+                # Trigger background update (don't await to keep response fast)
+                asyncio.create_task(self.update_user_profile(user_id, new_data))
+                # Clean the JSON from the text shown to user
+                return raw_text.replace(match.group(0), "").strip()
+            except: pass
+        return raw_text
+    
     async def _fetch_icd_data(self, query):
         try:
             token = await self.get_token()

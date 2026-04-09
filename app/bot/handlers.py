@@ -91,7 +91,25 @@ async def cmd_ping_redis(message: types.Message):
         await message.answer(f"🏓 <b>Redis Pong!</b>\nLatency: {latency:.2f}ms", parse_mode=ParseMode.HTML)
     except Exception as e:
         await message.answer(f"❌ <b>Redis Connection Failed</b>\nError: {str(e)}", parse_mode=ParseMode.HTML)
+
+@router.message(Command("profile"))
+async def cmd_profile(message: types.Message):
+    profile = await medical_service.get_user_profile(message.from_user.id)
+    
+    if not profile.get("demographics") and not profile.get("chronic_conditions"):
+        await message.answer("📝 <b>Your health profile is empty.</b>\nAs we chat, I will remember your health details.")
+        return
+
+    text = "📝 <b>Your Medical Profile</b>\n\n"
+    if profile['demographics']:
+        text += f"👤 <b>Info:</b> {profile['demographics']}\n"
+    if profile['chronic_conditions']:
+        text += f"🏥 <b>Conditions:</b> {', '.join(profile['chronic_conditions'])}\n"
+    if profile['medications']:
+        text += f"💊 <b>Meds:</b> {', '.join(profile['medications'])}\n"
         
+    await message.answer(text, parse_mode=ParseMode.HTML)
+  
 @router.message(Command("start"))
 async def cmd_start(message: types.Message):
     await message.answer("🩺 <b>Medical Assistant</b>\nHow can I help you today?", parse_mode=ParseMode.HTML)
@@ -113,7 +131,7 @@ async def handle_user_query(message: types.Message):
     anim_task = asyncio.create_task(animate_loading(bot, chat_id, draft_id, stop_event))
 
     try:
-        response_text = await medical_service.get_grounded_response(message.text)
+        response_text = await medical_service.get_grounded_response(message.text, message.from_user.id)
         stop_event.set()
         await anim_task
         await message.answer(response_text, parse_mode=ParseMode.HTML)
