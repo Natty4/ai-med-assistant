@@ -153,7 +153,7 @@ async def cmd_profile(message: types.Message):
     if profile.get("medications"):
         res.append(f"💊 <b>Medications:</b> {', '.join(profile['medications'])}")
 
-    res.append("\n<i>This info is shared with the AI to personalize your health insights.</i>")
+    res.append("\n<i>This info anonymized and shared with the AI to personalize your health insights.</i>")
     
     await message.answer("\n".join(res), parse_mode=ParseMode.HTML)
   

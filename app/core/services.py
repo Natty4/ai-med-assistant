@@ -124,7 +124,7 @@ class MedicalService:
         cache_key = f"icd_cache:{search_query.replace(' ', '_')}"
         icd_context = None
 
-        # 1. Try Redis Cache
+        # Try Redis Cache
         if redis_client:
             try:
                 cached_res = await redis_client.get(cache_key)
@@ -134,12 +134,12 @@ class MedicalService:
             except Exception as e:
                 logger.warning(f"Redis lookup failed, falling back to memory: {e}")
 
-        # 2. Try Memory Cache (If Redis failed or returned nothing)
+        # Try Memory Cache (If Redis failed or returned nothing)
         if not icd_context and cache_key in self._memory_cache:
             icd_context = self._memory_cache[cache_key]
             logger.info(f"🧠 Memory Cache Hit: {search_query}")
 
-        # 3. Fetch from API if still no context
+        # Fetch from API if still no context
         if not icd_context:
             icd_context = await self._fetch_icd_data(search_query)
             if icd_context:
@@ -152,9 +152,7 @@ class MedicalService:
                         await redis_client.set(cache_key, json.dumps(icd_context), ex=86400)
                     except:
                         pass
-        print(icd_context, '>>-****-<<')
         context_str = json.dumps(icd_context) if icd_context else "General medical knowledge (No direct ICD-11 match)."
-        print(context_str, '<<-****->>')
 
         # Fetch the patient profile
         profile = await self.get_user_profile(user_id)
