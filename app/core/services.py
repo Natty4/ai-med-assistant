@@ -12,13 +12,17 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 
-redis_client = redis.Redis(
-    host=settings.REDIS_HOST,
-    port=settings.REDIS_PORT,
-    db=settings.REDIS_DB,
-    password=settings.REDIS_PASSWORD,
-    decode_responses=True
-)
+try:
+    redis_client = redis.from_url(
+        settings.REDIS_URL,
+        decode_responses=True,
+        socket_timeout=5.0,
+        health_check_interval=30,
+        retry_on_timeout=True
+    )
+except Exception as e:
+    logger.error(f"⚠️ Redis Initialization Failed: {e}")
+    redis_client = None
 
 class MedicalService:
     def __init__(self, icd_id, icd_secret, gemini_key):
@@ -27,7 +31,7 @@ class MedicalService:
         self.client = genai.Client(api_key=gemini_key)
         self.token = None
         self.load_local_keywords()
-        
+        self._memory_cache = {}
         # Stop words for cleaning queries
         self.stop_words = {
             "i", "have", "a", "the", "feel", "like", "am", "suffering", 
@@ -74,25 +78,38 @@ class MedicalService:
 
         search_query = self._clean_query(user_text)
         cache_key = f"icd_cache:{search_query.replace(' ', '_')}"
-        
-        try:
-            # FIX: Check Redis with a local try/except to prevent total crash
-            cached_res = await redis_client.get(cache_key)
-        except Exception as e:
-            logger.error(f"Redis link failed: {e}")
-            cached_res = None
+        icd_context = None
 
-        if cached_res:
-            icd_context = json.loads(cached_res)
-        else:
+        # 1. Try Redis Cache
+        if redis_client:
+            try:
+                cached_res = await redis_client.get(cache_key)
+                if cached_res:
+                    icd_context = json.loads(cached_res)
+                    logger.info(f"⚡ Redis Cache Hit: {search_query}")
+            except Exception as e:
+                logger.warning(f"Redis lookup failed, falling back to memory: {e}")
+
+        # 2. Try Memory Cache (If Redis failed or returned nothing)
+        if not icd_context and cache_key in self._memory_cache:
+            icd_context = self._memory_cache[cache_key]
+            logger.info(f"🧠 Memory Cache Hit: {search_query}")
+
+        # 3. Fetch from API if still no context
+        if not icd_context:
             icd_context = await self._fetch_icd_data(search_query)
             if icd_context:
-                try:
-                    await redis_client.setex(cache_key, 86400, json.dumps(icd_context))
-                except: pass
+                # Save to Memory
+                self._memory_cache[cache_key] = icd_context
+                # Try saving to Redis
+                if redis_client:
+                    try:
+                        # await redis_client.setex(cache_key, 86400, json.dumps(icd_context))
+                        await redis_client.set(cache_key, json.dumps(icd_context), ex=86400)
+                    except:
+                        pass
 
         context_str = json.dumps(icd_context) if icd_context else "No specific match found."
-        
         final_prompt = f"""System: Use this ICD data: {context_str}. 
                         User said: {user_text}. 
                         Explain the condition simply.
@@ -132,6 +149,8 @@ class MedicalService:
     # Cleanup method for when the bot shuts down
     async def close_connections(self):
         await self.http_client.aclose()
+        if redis_client:
+            await redis_client.close()
         
 # Singleton Instance
 medical_service = MedicalService(
