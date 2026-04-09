@@ -110,10 +110,10 @@ class MedicalService:
                         entity_url = search_data['destinationEntities'][0]['id']
                         # 2. Detail Fetch with Error Handling
                         detail_resp = await client.get(entity_url, headers=headers, timeout=5.0)
-                        print('**detail_resp**', detail_resp, '***')
+                        logger.error('**detail_resp**', detail_resp, '***')
                         if detail_resp.status_code == 200:
                             icd_context = detail_resp.json()
-                            print('--icd_context--', icd_context)
+                            logger.error('--icd_context--', icd_context)
                 elif search_resp.status_code != 404:
                     # Log unexpected status codes (500, 401, etc)
                     logger.warning(f"ICD API returned status: {search_resp.status_code}")
