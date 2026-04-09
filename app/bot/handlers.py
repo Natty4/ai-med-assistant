@@ -8,7 +8,7 @@ from aiogram.methods import SendMessageDraft
 from aiogram.types import BufferedInputFile
 from aiogram.enums import ParseMode, ChatAction
 from aiogram.filters import Filter, Command
-from core.config import settings
+from app.core.config import settings
 from app.core.services import medical_service, redis_client
 
 logger = logging.getLogger(__name__)
