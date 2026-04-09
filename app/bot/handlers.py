@@ -45,50 +45,47 @@ async def animate_loading(bot, chat_id: int, draft_id: int, stop_event: asyncio.
 
 @router.message(Command("start"))
 async def cmd_start(message: types.Message):
-    await message.answer("🩺 <b>Medical Assistant</b>\n\nHello! I am your Medical Assistant. How can I help you today?", parse_mode=ParseMode.HTML)
+    await message.answer("🩺 <b>Medical Assistant</b>\n\n"
+                         "Hello! I am your Medical Assistant." 
+                         "How can I help you today?", 
+                         parse_mode=ParseMode.HTML
+        )
 
     
+
 @router.message()
 async def handle_user_query(message: types.Message):
     if not medical_service._is_valid_query(message.text):
         await message.answer(
-                "<b>Hello!</b>\n\n"
-                "Please describe your symptoms briefly. This helps me "
-                "provide accurate information.",
-                parse_mode=ParseMode.HTML
-            
-            )
+            "<b>Hello!</b>\n\nPlease describe your symptoms briefly.",
+            parse_mode=ParseMode.HTML
+        )
         return
 
     bot = message.bot
     chat_id = message.chat.id
-
+    
+    draft_id = message.message_id 
     stop_event = asyncio.Event()
-
-    # ⚠️ You MUST create a draft first (important)
-    draft = await bot.create_message_draft(chat_id=chat_id, text="...")
-    draft_id = draft.draft_id
 
     anim_task = asyncio.create_task(
         animate_loading(bot, chat_id, draft_id, stop_event)
     )
 
     try:
+        # Get the actual response from your service
         response_text = await medical_service.get_grounded_response(message.text)
+        # Stop the animation
         stop_event.set()
         await anim_task
-        await bot.delete_message_draft(chat_id=chat_id, draft_id=draft_id)
         await message.answer(response_text, parse_mode=ParseMode.HTML)
 
     except Exception as e:
         logger.error(f"Handler error: {e}")
-
         stop_event.set()
         await anim_task
-
-        await bot.delete_message_draft(chat_id=chat_id, draft_id=draft_id)
-
         await message.answer(
-            "<b>Wait a moment...</b>\nSomething went wrong. Please try rephrasing your concern.",
+            "<b>Wait a moment...</b>" 
+            "Something went wrong. Please try again later.",
             parse_mode=ParseMode.HTML
-        )
+            )
