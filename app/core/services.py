@@ -113,8 +113,10 @@ class MedicalService:
         final_prompt = f"""System: Use this ICD data: {context_str}. 
                         User said: {user_text}. 
                         Explain the condition simply.
-                        Provide a structured response using Telegram HTML (<b>, <i>).
-                        Include <blockquote expandable><b>DISCLAIMER</b>\n...</blockquote>
+                        Provide a structured response using Telegram HTML (<b>, <i>, <code>).
+                        End with <blockquote expandable><b>DISCLAIMER</b>\n\n ...</blockquote>
+                        
+                        IMPORTANT: Do not use Markdown symbols. Use ONLY HTML.
                         """
         try:
             response = self.client.models.generate_content(model=settings.LLMODEL, contents=final_prompt)
