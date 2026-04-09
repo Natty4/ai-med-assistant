@@ -51,7 +51,6 @@ class MedicalService:
         
         # If the user has at least one word matching the ICD-11 MMS table
         has_medical_term = any(word in self.medical_vocabulary for word in user_words)
-        logger.error(f"{has_medical_term, user_words} ----")
         return has_medical_term
 
     def _clean_query(self, text: str) -> str:
@@ -123,8 +122,6 @@ class MedicalService:
             logger.error(f"Unexpected error: {e}")
             error_flag = True
 
-        # --- REFINED PROMPT FOR ERRORS ---
-        # We tell the LLM if the database was unreachable so it can pivot gracefully.
         db_status = "UNAVAILABLE" if error_flag else "AVAILABLE"
         context_data = icd_context if icd_context else "No specific match in database."
 
@@ -154,8 +151,8 @@ class MedicalService:
             )
             return response.text
         except Exception as e:
-            logger.error(f"Gemini API Error: {e}")
-            return "⚠️ <b>humm</b>\nI'm currently experiencing high demand. Please wait and try again in a few minutes."
+            logger.error(f"LLM API Error: {e}")
+            return "⚠️ <b>humm</b> currently experiencing high demand.\n <i>Please wait and try again in a few minutes.</i>"
 
 # Singleton Instance
 medical_service = MedicalService(

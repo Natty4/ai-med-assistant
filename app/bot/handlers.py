@@ -50,7 +50,6 @@ async def cmd_start(message: types.Message):
                          "How can I help you today?", 
                          parse_mode=ParseMode.HTML
         )
-
     
 
 @router.message()
