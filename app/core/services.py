@@ -11,21 +11,10 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-
-redis_client = redis.Redis(
-    host=settings.REDIS_HOST,
-    port=settings.REDIS_PORT,
-    db=settings.REDIS_DB,
-    password=settings.REDIS_PASSWORD,
-    decode_responses=True,
-    # FIX FOR CROSS-PROVIDER CONNECTION:
-    socket_timeout=5.0,            # Don't wait forever for a response
-    socket_connect_timeout=5.0,    # Timeout if connection takes too long
-    socket_keepalive=True,         # Keep the TCP socket open
-    health_check_interval=30,      # Ping the server every 30s to keep connection alive
-    retry_on_timeout=True          # Automatically retry once if connection drops
+redis_client = redis.from_url(
+    settings.REDIS_URL,
+    decode_responses=True  # returns strings instead of bytes
 )
-
 class MedicalService:
     def __init__(self, icd_id, icd_secret, gemini_key):
         self.icd_id = icd_id

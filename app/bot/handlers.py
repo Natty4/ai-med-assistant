@@ -55,6 +55,7 @@ async def cmd_stats(message: types.Message):
         stats_text += f"• {term}: {count}\n"
         
     await message.answer(stats_text, parse_mode=ParseMode.HTML)
+    
 
 @router.message(Command("dump"), IsAdmin())
 async def cmd_dump(message: types.Message):
@@ -81,6 +82,16 @@ async def cmd_dump(message: types.Message):
         parse_mode=ParseMode.HTML
     )
     
+@router.message(Command("ping_redis"), IsAdmin())
+async def cmd_ping_redis(message: types.Message):
+    start = asyncio.get_event_loop().time()
+    try:
+        await redis_client.ping()
+        latency = (asyncio.get_event_loop().time() - start) * 1000
+        await message.answer(f"🏓 <b>Redis Pong!</b>\nLatency: {latency:.2f}ms", parse_mode=ParseMode.HTML)
+    except Exception as e:
+        await message.answer(f"❌ <b>Redis Connection Failed</b>\nError: {str(e)}", parse_mode=ParseMode.HTML)
+        
 @router.message(Command("start"))
 async def cmd_start(message: types.Message):
     await message.answer("🩺 <b>Medical Assistant</b>\nHow can I help you today?", parse_mode=ParseMode.HTML)
@@ -113,12 +124,3 @@ async def handle_user_query(message: types.Message):
         await message.answer("⚠️ Error processing request.", parse_mode=ParseMode.HTML)
         
         
-@router.message(Command("ping_redis"), IsAdmin())
-async def cmd_ping_redis(message: types.Message):
-    start = asyncio.get_event_loop().time()
-    try:
-        await redis_client.ping()
-        latency = (asyncio.get_event_loop().time() - start) * 1000
-        await message.answer(f"🏓 <b>Redis Pong!</b>\nLatency: {latency:.2f}ms", parse_mode=ParseMode.HTML)
-    except Exception as e:
-        await message.answer(f"❌ <b>Redis Connection Failed</b>\nError: {str(e)}", parse_mode=ParseMode.HTML)
