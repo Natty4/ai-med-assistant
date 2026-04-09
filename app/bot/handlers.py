@@ -97,7 +97,10 @@ async def cmd_profile(message: types.Message):
     profile = await medical_service.get_user_profile(message.from_user.id)
     
     if not profile.get("demographics") and not profile.get("chronic_conditions"):
-        await message.answer("📝 <b>Your health profile is empty.</b>\nAs we chat, I will remember your health details.")
+        await message.answer("📝 <b>Your health profile is empty.</b>\n"
+                             "As we chat, I will remember your health details.",
+                             parse_mode=ParseMode.HTML
+                             )
         return
 
     text = "📝 <b>Your Medical Profile</b>\n\n"

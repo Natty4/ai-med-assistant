@@ -169,7 +169,7 @@ class MedicalService:
                         2. If the user mentioned new personal info (age, weight, existing disease, meds), 
                            wrap that info in a JSON block at the end like this:
                            JSON_UPDATE: {{"demographics": {{"age": 30}}, "chronic_conditions": ["Diabetes"]}}
-                        
+                        3. Provide a structured response using Telegram HTML (<b>, <i>, <code>).
                         IMPORTANT: Do not use Markdown symbols. Use ONLY HTML.
                         """
         
