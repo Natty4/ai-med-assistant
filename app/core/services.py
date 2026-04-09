@@ -145,7 +145,7 @@ class MedicalService:
                         await redis_client.set(cache_key, json.dumps(icd_context), ex=86400)
                     except:
                         pass
-        print(context_str, '>>-****-<<')
+        print(icd_context, '>>-****-<<')
         context_str = json.dumps(icd_context) if icd_context else "General medical knowledge (No direct ICD-11 match)."
         print(context_str, '<<-****->>')
 
@@ -223,14 +223,16 @@ class MedicalService:
                 if not data.get('destinationEntities'):
                     logger.warning(f"❓ WHO API returned zero results for: {query}")
                     return None
-                data = search_resp.json()
-                if data.get('destinationEntities'):
-                    detail_resp = await self.http_client.get(
-                        data['destinationEntities'][0]['id'], 
-                        headers=headers
-                    )
-                    return detail_resp.json() if detail_resp.status_code == 200 else None
-            return None
+                detail_resp = await self.http_client.get(
+                    data['destinationEntities'][0]['id'], 
+                    headers=headers,
+                    timeout=10
+                )
+                if detail_resp.status_code == 200: 
+                    return detail_resp.json() 
+                else: 
+                    logger.warning(f"❓ Fail with status code: {detail_resp.status_code}")
+                    return None
         except Exception as e:
             logger.error(f"ICD Fetch Error: {e}")
             return None
