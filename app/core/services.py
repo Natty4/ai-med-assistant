@@ -11,10 +11,15 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-redis_client = redis.from_url(
-    settings.REDIS_URL,
-    decode_responses=True  # returns strings instead of bytes
+
+redis_client = redis.Redis(
+    host=settings.REDIS_HOST,
+    port=settings.REDIS_PORT,
+    db=settings.REDIS_DB,
+    password=settings.REDIS_PASSWORD,
+    decode_responses=True
 )
+
 class MedicalService:
     def __init__(self, icd_id, icd_secret, gemini_key):
         self.icd_id = icd_id
