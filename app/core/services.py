@@ -206,33 +206,58 @@ class MedicalService:
     async def _fetch_icd_data(self, query):
         try:
             token = await self.get_token()
-            headers = {'Authorization': f'Bearer {token}', 'Accept': 'application/json', 'Accept-Language': 'en', 'API-Version': 'v2'}
+            headers = {
+                'Authorization': f'Bearer {token}', 
+                'Accept': 'application/json', 
+                'Accept-Language': 'en', 
+                'API-Version': 'v2'
+            }
+            
+            # 1. Search for multiple candidates
             search_resp = await self.http_client.get(
                 "https://id.who.int/icd/entity/search", 
                 headers=headers, 
-                params={'q': query, 
-                        'useFoundation': 'true',
-                        'flatResults': 'false',
-                        }
+                params={
+                    'q': query, 
+                    'useFoundation': 'true',
+                    'flatResults': 'false'
+                }
             )
             
-            if search_resp.status_code == 200:
-                logger.info(f"🔍 Sending to WHO API: {query}")
-                data = search_resp.json()
-                # If destinationEntities is empty, WHO found nothing
-                if not data.get('destinationEntities'):
-                    logger.warning(f"❓ WHO API returned zero results for: {query}")
-                    return None
-                detail_resp = await self.http_client.get(
-                    data['destinationEntities'][0]['id'], 
-                    headers=headers,
-                    timeout=10
-                )
-                if detail_resp.status_code == 200: 
-                    return detail_resp.json() 
-                else: 
-                    logger.warning(f"❓ Fail with status code: {detail_resp.status_code}")
-                    return None
+            if search_resp.status_code != 200:
+                return None
+
+            search_results = search_resp.json().get('destinationEntities', [])
+            if not search_results:
+                return None
+
+            # 2. Bundle the top 3 results to get a "rich" context
+            # This gives the LLM synonyms, parents, and different variations of the condition
+            rich_bundle = []
+            
+            # We limit to top 3 to keep the prompt size efficient
+            for entity in search_results[:3]:
+                entity_id = entity['id']
+                try:
+                    detail_resp = await self.http_client.get(entity_id, headers=headers, timeout=5)
+                    if detail_resp.status_code == 200:
+                        detail_data = detail_resp.json()
+                        
+                        # Extract only the useful parts to save tokens
+                        rich_bundle.append({
+                            "title": detail_data.get("title", {}).get("@value"),
+                            "definition": detail_data.get("definition", {}).get("@value"),
+                            "longDefinition": detail_data.get("longDefinition", {}).get("@value"),
+                            "synonyms": [s.get("label", {}).get("@value") for s in detail_data.get("synonym", [])],
+                            "exclusions": [e.get("label", {}).get("@value") for e in detail_data.get("exclusion", [])],
+                            "ancestors": [a.split('/')[-1] for a in detail_data.get("ancestor", [])]
+                        })
+                except Exception as e:
+                    logger.warning(f"Failed to fetch details for {entity_id}: {e}")
+                    continue
+
+            return rich_bundle if rich_bundle else None
+
         except Exception as e:
             logger.error(f"ICD Fetch Error: {e}")
             return None
