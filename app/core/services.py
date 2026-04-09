@@ -34,6 +34,7 @@ class MedicalService:
         self.load_local_keywords()
         self._memory_cache = {}
         self.models = settings.model_list
+        self.nhs_data = self.load_nhs_data()
         # Stop words for cleaning queries
         self.stop_words = {
             "i", "have", "a", "the", "feel", "like", "am", "suffering", 
@@ -79,8 +80,7 @@ class MedicalService:
             current[key] = list(set(current[key] + items))
             
         await redis_client.set(f"profile:{user_id}", json.dumps(current))
-        
-        
+             
     def load_local_keywords(self):
         try:
             with open("icd_keywords.json", "r") as f:
@@ -109,6 +109,26 @@ class MedicalService:
             resp.raise_for_status()
             return resp.json()['access_token']
 
+
+    def load_nhs_data(self):
+        try:
+            with open("data/nhs_conditions.json", "r") as f:
+                return json.load(f) # List of dicts you provided
+        except Exception as e:
+            logger.error(f"Failed to load NHS data: {e}")
+            return []
+
+    def _find_nhs_context(self, query):
+        """Matches user query against local NHS symptoms and conditions."""
+        query = query.lower()
+        matches = []
+        for entry in self.nhs_data:
+            # Match condition name or presence in symptoms list
+            if query in entry["condition"].lower() or \
+               any(query in s.lower() for s in entry.get("symptoms", [])):
+                matches.append(entry)
+        return matches[:2]
+    
     async def get_grounded_response(self, user_text, user_id: int):
         if not self._is_valid_query(user_text):
             return "<b>I'm ready to help!</b>\n\nPlease describe your symptoms briefly."
@@ -153,58 +173,41 @@ class MedicalService:
                         pass
         context_str = json.dumps(icd_context) if icd_context else "General medical knowledge (No direct ICD-11 match)."
 
-        # Fetch the patient profile
+        icd_context = await self._fetch_icd_data(search_query)
+        nhs_context = self._find_nhs_context(search_query)
         profile = await self.get_user_profile(user_id)
-        profile_summary = json.dumps(profile)
-        
+        history_key = f"chat_history:{user_id}"
+        raw_history = await redis_client.lrange(history_key, 0, 2) if redis_client else []
 
         final_prompt = f"""
-            <INSTRUCTION>
-                You are a clinical data synthesizer. You are STRICTLY LIMITED to the provided ICD-11 API data. 
-                Do not use external medical training for the 'Proactive Guidance' section.
-            </INSTRUCTION>
+            <SYSTEM_ROLE>
+                You are a Proactive Medical Triage Assistant. 
+                You must aggregate Clinical Data (ICD-11) with Patient Advice (NHS).
+            </SYSTEM_ROLE>
 
-            <SOURCE_DATA_FROM_ICD_API>
-                {json.dumps(icd_context)}
-            </SOURCE_DATA_FROM_ICD_API>
+            <DATA_SOURCES>
+                <ICD_CLINICAL>{json.dumps(icd_context)}</ICD_CLINICAL>
+                <NHS_GUIDANCE>{json.dumps(nhs_context)}</NHS_GUIDANCE>
+                <USER_PROFILE>{json.dumps(profile)}</USER_PROFILE>
+                <HISTORY>{" ".join(raw_history)}</HISTORY>
+            </DATA_SOURCES>
 
-            <USER_INPUT>
-                {user_text}
-            </USER_INPUT>
+            <TASK_STRICT_RULES>
+                1. PROACTIVE TRIAGE: Use the 'symptoms' and 'self_care' from NHS data to create "If/Then" scenarios.
+                2. VISUALS: If the NHS data contains an image URL that matches the condition, you MUST display it using an HTML <img> tag.
+                3. AGGREGATION: If ICD lists a 'related_sign' that NHS doesn't mention, include it as a "Clinical Red Flag".
+                4. If the user is answering a previous question, acknowledge it and pivot to the plan.
+            </TASK_STRICT_RULES>
 
-            <TASK>
-                1. Analyze the 'related_signs' and 'index_terms' in the SOURCE_DATA.
-                2. Identify the "Differential Signs" (symptoms that distinguish one condition from another in the ICD results).
-                3. PROACTIVE RESPONSE: 
-                - Instead of asking the user, state: "According to the ICD-11 database, [Title] is often associated with [related_signs]. If you are experiencing [Sign A] specifically, the priority level is [X]."
-                4. If the user input is an answer to a previous turn, merge it with the ICD profile of the suspected condition.
-            </TASK>
-
-            <STRICT_RULES>
-                - Every 'If' statement must be backed by a 'related_sign' or 'index_term' from the JSON above.
-                - If the API data is empty, state that no clinical match was found in the WHO database for that specific term.
-                - Use HTML tags only.
-            </STRICT_RULES>
-
-            <OUTPUT_STRUCTURE>
-                Respond ONLY using HTML tags (<b>, <i>, <code>). Do NOT use Markdown (no asterisks, no hashtags).
-
-                1. <b>Condition Summary</b>: A brief, plain-English explanation.
-                2. <b>Triage Level</b>: Clearly state if they should seek: EMERGENCY ROOM, URGENT CARE, or HOME CARE.
-                3. <b>Management & Prevention</b>:
-                - <i>Short-term</i>: Immediate steps for relief.
-                - <i>Long-term</i>: Prevention strategies.
-                4. <b>The Do's & Not to Do's</b>:
-                - List positive actions and critical warnings.
-            </OUTPUT_STRUCTURE>
-
-            <DATA_EXTRACTION>
-                If the user mentioned NEW personal info (age, weight, conditions, meds), you MUST append a JSON block at the very end.
-                Format: JSON_UPDATE: {{"demographics": {{...}}, "chronic_conditions": [...], "medications": [...]}}
-            </DATA_EXTRACTION>
-
-                End your response with this exact disclaimer:
-            <blockquote expandable><b>DISCLAIMER</b>\n\n This assistant provides information based on ICD-11 data for educational purposes only. It is NOT a substitute for professional medical advice, diagnosis, or treatment. Always seek the advice of your physician.</blockquote expandable>
+            <OUTPUT_FORMAT>
+                Use HTML. 
+                Structure:
+                <b>Assessments & Clinical Matches</b> (Source: ICD-11)
+                <b>Proactive Guidance</b> (Source: NHS - Use If/Then logic)
+                <b>Home Care & Next Steps</b> (Source: NHS Self-care)
+                [IMG TAG IF AVAILABLE]
+                <blockquote>Disclaimer...</blockquote>
+            </OUTPUT_FORMAT>
         """
         
         last_error = None
