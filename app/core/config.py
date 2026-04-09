@@ -20,5 +20,11 @@ class Settings(BaseSettings):
         env_file=".env", 
         extra="ignore"
     )
+    
+    ADMIN_IDS: str = ""
+
+    @property
+    def admin_list(self) -> list[int]:
+        return [int(x) for x in self.ADMIN_IDS.split(",") if x]
 
 settings = Settings()
