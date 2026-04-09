@@ -129,25 +129,31 @@ class MedicalService:
         db_status = "UNAVAILABLE" if error_flag else "AVAILABLE"
         context_data = icd_context if icd_context else "No specific match found in the official registry."
 
-        final_prompt = f"""
-            SYSTEM ROLE: Professional Medical Assistant.
-            DATABASE_STATUS: {db_status}
-            CONTEXT (ICD-11 Data): {context_data}
-            USER INPUT: {user_text}
+        # final_prompt = f"""
+        #     SYSTEM ROLE: Professional Medical Assistant.
+        #     DATABASE_STATUS: {db_status}
+        #     CONTEXT (ICD-11 Data): {context_data}
+        #     USER INPUT: {user_text}
             
-            TASK:
-            - Provide a structured response using Telegram (<b>, <i>, <code>).
-            - Use bolding for headers.
-            - Structure: 
-              1. A brief empathetic acknowledgment.
-              2. "Classification/Potential Condition" (Based on ICD-11 data).
-              3. "Insights" (Simple explanation).
-              4. "Follow-up" (One question if only in the ICD-11 data or applicable).
-              5. End with <blockquote expandable><b>DISCLAIMER</b>\n\n ...</blockquote>
+        #     TASK:
+        #     - Provide a structured response using Telegram (<b>, <i>, <code>).
+        #     - Use bolding for headers.
+        #     - Structure: 
+        #       1. A brief empathetic acknowledgment.
+        #       2. "Classification/Potential Condition" (Based on ICD-11 data).
+        #       3. "Insights" (Simple explanation).
+        #       4. "Follow-up" (One question if only in the ICD-11 data or applicable).
+        #       5. End with <blockquote expandable><b>DISCLAIMER</b>\n\n ...</blockquote>
             
-            IMPORTANT: Do not use Markdown symbols. Use ONLY HTML.
-            """
-            
+        #     IMPORTANT: Do not use Markdown symbols. Use ONLY HTML.
+        #     """
+        final_prompt = f"""System: Use this ICD data: {context_data}. 
+                        User said: {user_text}. 
+                        Explain the condition and ask a follow-up about 
+                        {context_data['axes'] if context_data else 'their symptoms'}. 
+                        Provide a structured response using Telegram (<b>, <i>, <code>).
+                        Include a medical disclaimer <blockquote expandable><b>DISCLAIMER</b>\n\n ...</blockquote>
+                        """
         try:
             response = self.client.models.generate_content(
                 model=settings.LLMODEL, 
@@ -156,7 +162,9 @@ class MedicalService:
             return response.text
         except Exception as e:
             logger.error(f"LLM API Error: {e}")
-            return "⚠️ <b>humm..</b> currently experiencing high demand.\n <i>Please wait and try again in a few minutes.</i>"
+            return """⚠️ <b>humm..</b> currently experiencing high demand.\n 
+                        <i>Please wait and try again in a few minutes.</i>
+                    """
 
 # Singleton Instance
 medical_service = MedicalService(

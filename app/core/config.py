@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     ICD_CLIENT_SECRET: str
     BOT_TOKEN: str
     WEBHOOK_URL: str
-    LLMODEL: str = "gemini-3-flash" 
+    LLMODEL: str
     
     model_config = SettingsConfigDict(
         env_file=".env", 
