@@ -32,6 +32,7 @@ class MedicalService:
         self.token = None
         self.load_local_keywords()
         self._memory_cache = {}
+        self.models = settings.model_list
         # Stop words for cleaning queries
         self.stop_words = {
             "i", "have", "a", "the", "feel", "like", "am", "suffering", 
@@ -118,12 +119,31 @@ class MedicalService:
                         
                         IMPORTANT: Do not use Markdown symbols. Use ONLY HTML.
                         """
-        try:
-            response = self.client.models.generate_content(model=settings.LLMODEL, contents=final_prompt)
-            return response.text
-        except Exception as e:
-            logger.error(f"LLM Error: {e}")
-            return "⚠️ Service busy. Please try again."
+        
+        last_error = None
+        for model_name in self.models:
+            try:
+                logger.info(f"🤖 Attempting response with model: {model_name}")
+                response = self.client.models.generate_content(
+                    model=model_name, 
+                    contents=final_prompt
+                )
+                return response.text
+            except Exception as e:
+                last_error = e
+                # Check if error is related to Quota (429) or Server (503/500)
+                err_msg = str(e).lower()
+                if "429" in err_msg or "503" in err_msg or "500" in err_msg:
+                    logger.warning(f"⚠️ Model {model_name} failed ({e}). Trying next fallback...")
+                    continue 
+                else:
+                    # If it's a different error (e.g., safety block), might want to stop
+                    logger.error(f"❌ Fatal LLM Error with {model_name}: {e}")
+                    break
+
+        logger.error(f"All models exhausted. Last error: {last_error}")
+        return "⚠️ <b>Service currently unavailable.</b>\nAI engines are under heavy load. Please try again in a moment."
+
 
     async def _fetch_icd_data(self, query):
         try:

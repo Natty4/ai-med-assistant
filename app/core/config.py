@@ -22,6 +22,12 @@ class Settings(BaseSettings):
         extra="ignore"
     )
     
+    LLM_MODELS: str
+    
+    @property
+    def model_list(self) -> list[str]:
+        return [m.strip() for m in self.LLM_MODELS.split(",") if m.strip()]
+    
     ADMIN_IDS: str = ""
 
     @property
