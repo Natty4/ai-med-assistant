@@ -200,13 +200,16 @@ class MedicalService:
             </TASK_STRICT_RULES>
 
             <OUTPUT_FORMAT>
-                Use HTML. 
+                Respond ONLY using HTML tags (<b>, <i>, <code>). Do NOT use Markdown (no asterisks, no hashtags).
                 Structure:
                 <b>Assessments & Clinical Matches</b> (Source: ICD-11)
                 <b>Proactive Guidance</b> (Source: NHS - Use If/Then logic)
                 <b>Home Care & Next Steps</b> (Source: NHS Self-care)
+                <b>The Do's & Not to Do's</b>:
+                    - List positive actions and critical warnings.
                 [IMG TAG IF AVAILABLE]
-                <blockquote>Disclaimer...</blockquote>
+                End your response with this exact disclaimer:
+                <blockquote expandable><b>DISCLAIMER</b>\n\n This assistant provides information for educational purposes only. It is NOT a substitute for professional medical advice, diagnosis, or treatment. Always seek the advice of your physician.</blockquote expandable>
             </OUTPUT_FORMAT>
         """
         
@@ -293,7 +296,6 @@ class MedicalService:
                         "synonyms": [s.get("label", {}).get("@value") for s in d.get("synonym", [])],
                         "foundationChild": [c.get("label", {}).get("@value") for c in d.get("foundationChildEntities", [])[:5]]
                     })
-            print(rich_bundle, '---------')
             return rich_bundle
         except Exception as e:
             logger.error(f"ICD Deep Fetch Error: {e}")
