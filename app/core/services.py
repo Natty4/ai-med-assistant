@@ -88,10 +88,12 @@ class MedicalService:
         try:
             token = await self.get_token()
             headers = {
-                'Authorization': f'Bearer {token}', 
-                'Accept': 'application/json', 
+                'Authorization': f'Bearer {token}',
+                'Accept': 'application/json',
+                'Accept-Language': 'en',
                 'API-Version': 'v2'
             }
+            
             
             async with httpx.AsyncClient() as client:
                 # Search with Error Handling
@@ -108,8 +110,10 @@ class MedicalService:
                         entity_url = search_data['destinationEntities'][0]['id']
                         # 2. Detail Fetch with Error Handling
                         detail_resp = await client.get(entity_url, headers=headers, timeout=5.0)
+                        print('**detail_resp**', detail_resp, '***')
                         if detail_resp.status_code == 200:
                             icd_context = detail_resp.json()
+                            print('--icd_context--', icd_context)
                 elif search_resp.status_code != 404:
                     # Log unexpected status codes (500, 401, etc)
                     logger.warning(f"ICD API returned status: {search_resp.status_code}")
@@ -123,7 +127,7 @@ class MedicalService:
             error_flag = True
 
         db_status = "UNAVAILABLE" if error_flag else "AVAILABLE"
-        context_data = icd_context if icd_context else "No specific match in database."
+        context_data = icd_context if icd_context else "No specific match found in the official registry."
 
         final_prompt = f"""
             SYSTEM ROLE: Professional Medical Assistant.
@@ -152,7 +156,7 @@ class MedicalService:
             return response.text
         except Exception as e:
             logger.error(f"LLM API Error: {e}")
-            return "⚠️ <b>humm</b> currently experiencing high demand.\n <i>Please wait and try again in a few minutes.</i>"
+            return "⚠️ <b>humm..</b> currently experiencing high demand.\n <i>Please wait and try again in a few minutes.</i>"
 
 # Singleton Instance
 medical_service = MedicalService(
