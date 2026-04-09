@@ -147,14 +147,14 @@ class MedicalService:
 
         context_str = json.dumps(icd_context) if icd_context else "No specific match found."
         
-        final_prompt = f"""System: Use this ICD data: {context_str}. 
-                        User said: {user_text}. 
-                        Explain the condition simply.
-                        Provide a structured response using Telegram HTML (<b>, <i>, <code>).
-                        End with <blockquote expandable><b>DISCLAIMER</b>\n\n ...</blockquote>
+        # final_prompt = f"""System: Use this ICD data: {context_str}. 
+        #                 User said: {user_text}. 
+        #                 Explain the condition simply.
+        #                 Provide a structured response using Telegram HTML (<b>, <i>, <code>).
+        #                 End with <blockquote expandable><b>DISCLAIMER</b>\n\n ...</blockquote>
                         
-                        IMPORTANT: Do not use Markdown symbols. Use ONLY HTML.
-                        """
+        #                 IMPORTANT: Do not use Markdown symbols. Use ONLY HTML.
+        #                 """
         # Fetch the patient profile
         profile = await self.get_user_profile(user_id)
         profile_summary = json.dumps(profile)
@@ -170,7 +170,7 @@ class MedicalService:
                            wrap that info in a JSON block at the end like this:
                            JSON_UPDATE: {{"demographics": {{"age": 30}}, "chronic_conditions": ["Diabetes"]}}
                         
-                        Response format: HTML only.
+                        IMPORTANT: Do not use Markdown symbols. Use ONLY HTML.
                         """
         
         last_error = None
