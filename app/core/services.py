@@ -213,48 +213,45 @@ class MedicalService:
                 'API-Version': 'v2'
             }
             
-            # 1. Search for multiple candidates
+            # Search for the query
             search_resp = await self.http_client.get(
                 "https://id.who.int/icd/entity/search", 
                 headers=headers, 
-                params={
-                    'q': query, 
-                    'useFoundation': 'true',
-                    'flatResults': 'false'
-                }
+                params={'q': query, 'useFoundation': 'true'},
+                follow_redirects=True
             )
             
             if search_resp.status_code != 200:
                 return None
 
-            search_results = search_resp.json().get('destinationEntities', [])
-            if not search_results:
+            results = search_resp.json().get('destinationEntities', [])
+            if not results:
                 return None
 
-            # 2. Bundle the top 3 results to get a "rich" context
-            # This gives the LLM synonyms, parents, and different variations of the condition
+            # Fetch top 3 matches to build a "Knowledge Bundle"
             rich_bundle = []
-            
-            # We limit to top 3 to keep the prompt size efficient
-            for entity in search_results[:3]:
-                entity_id = entity['id']
+            for entity in results[:3]:
+                # The ID returned is often http://id.who.int/... 
+                # follow_redirects=True handles the jump to https
                 try:
-                    detail_resp = await self.http_client.get(entity_id, headers=headers, timeout=5)
+                    detail_resp = await self.http_client.get(
+                        entity['id'], 
+                        headers=headers, 
+                        timeout=10,
+                        follow_redirects=True 
+                    )
+                    
                     if detail_resp.status_code == 200:
-                        detail_data = detail_resp.json()
-                        
-                        # Extract only the useful parts to save tokens
+                        d = detail_resp.json()
                         rich_bundle.append({
-                            "title": detail_data.get("title", {}).get("@value"),
-                            "definition": detail_data.get("definition", {}).get("@value"),
-                            "longDefinition": detail_data.get("longDefinition", {}).get("@value"),
-                            "synonyms": [s.get("label", {}).get("@value") for s in detail_data.get("synonym", [])],
-                            "exclusions": [e.get("label", {}).get("@value") for e in detail_data.get("exclusion", [])],
-                            "ancestors": [a.split('/')[-1] for a in detail_data.get("ancestor", [])]
+                            "title": d.get("title", {}).get("@value"),
+                            "definition": d.get("definition", {}).get("@value", "No definition available."),
+                            "longDefinition": d.get("longDefinition", {}).get("@value", "No longDefinition available."),
+                            "synonyms": [s.get("label", {}).get("@value") for s in d.get("synonym", [])],
+                            "foundationChild": [c.get("label", {}).get("@value") for c in d.get("foundationChildEntities", [])[:5]]
                         })
                 except Exception as e:
-                    logger.warning(f"Failed to fetch details for {entity_id}: {e}")
-                    continue
+                    logger.error(f"Error fetching detail for {entity['id']}: {e}")
 
             return rich_bundle if rich_bundle else None
 

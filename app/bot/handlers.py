@@ -26,7 +26,7 @@ async def animate_loading(bot, chat_id: int, draft_id: int, stop_event: asyncio.
         text = f"<i>{stages[min(dot_count // 8, 2)]}{' •' * (dot_count % 4)}</i>"
         try:
             await bot.send_chat_action(chat_id, ChatAction.TYPING)
-            await bot(SendMessageDraft(chat_id=chat_id, draft_id=draft_id, text=text, parse_mode=ParseMode.HTML))
+            # await bot(SendMessageDraft(chat_id=chat_id, draft_id=draft_id, text=text, parse_mode=ParseMode.HTML))
             dot_count += 1
             await asyncio.sleep(0.5)
         except Exception: break
