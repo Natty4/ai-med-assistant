@@ -28,7 +28,7 @@ async def animate_loading(bot, chat_id: int, draft_id: int, stop_event: asyncio.
             await bot.send_chat_action(chat_id, ChatAction.TYPING)
             await bot(SendMessageDraft(chat_id=chat_id, draft_id=draft_id, text=text, parse_mode=ParseMode.HTML))
             dot_count += 1
-            await asyncio.sleep(1.5)
+            await asyncio.sleep(0.5)
         except Exception: break
 
 @router.message(Command("stats"), IsAdmin())

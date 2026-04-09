@@ -37,7 +37,8 @@ class MedicalService:
         # Stop words for cleaning queries
         self.stop_words = {
             "i", "have", "a", "the", "feel", "like", "am", "suffering", 
-            "from", "pain", "my", "is", "it", "with", "and", "in", "on", "was"
+            "from", "pain", "my", "is", "it", "with", "and", "in", "on", "was",
+            "what", "why"
         }
         # FIX: Persistent client with connection pooling
         self.http_client = httpx.AsyncClient(
@@ -144,7 +145,7 @@ class MedicalService:
                         await redis_client.set(cache_key, json.dumps(icd_context), ex=86400)
                     except:
                         pass
-
+        print(context_str, '>>-****-<<')
         context_str = json.dumps(icd_context) if icd_context else "General medical knowledge (No direct ICD-11 match)."
         print(context_str, '<<-****->>')
 
