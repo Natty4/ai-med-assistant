@@ -92,41 +92,70 @@ async def cmd_ping_redis(message: types.Message):
     except Exception as e:
         await message.answer(f"❌ <b>Redis Connection Failed</b>\nError: {str(e)}", parse_mode=ParseMode.HTML)
 
-@router.message(Command("profile"))
-async def cmd_profile(message: types.Message):
-    profile = await medical_service.get_user_profile(message.from_user.id)
-    
-    # Check if the profile is truly empty (all fields are empty/empty lists)
-    is_empty = (
-        not profile.get("demographics") and 
-        not profile.get("chronic_conditions") and 
-        not profile.get("medications")
-    )
-
-    if is_empty:
+@router.message(Command("set"))
+async def cmd_set_profile(message: types.Message):
+    """
+    Usage: /set age: 30, conditions: Asthma, Diabetes, meds: Albuterol
+    """
+    args = message.text.replace("/set", "").strip()
+    if not args:
         await message.answer(
-            "📝 <b>Your health profile is empty.</b>\n\n"
-            "<b>How to build it:</b> Just tell me things like <i>'I am 30 years old'</i> "
-            "or <i>'I take Aspirin daily'</i> during our conversation.",
+            "<b>How to set your profile:</b>\n"
+            "Use the format: <code>/set key: value</code>\n\n"
+            "<b>Example:</b>\n"
+            "<code>/set age: 29, conditions: Asthma, meds: Ventolin</code>",
             parse_mode=ParseMode.HTML
         )
         return
 
-    text = "📝 <b>Your Personal Medical Profile</b>\n"
-    text += "<i>(Extracted from our conversations)</i>\n\n"
+    # Simple parsing logic
+    new_data = {
+        "demographics": {},
+        "chronic_conditions": [],
+        "medications": []
+    }
     
-    if profile.get('demographics'):
-        demo = profile['demographics']
-        details = ", ".join([f"{k}: {v}" for k, v in demo.items()])
-        text += f"👤 <b>Demographics:</b> {details}\n"
-        
-    if profile.get('chronic_conditions'):
-        text += f"🏥 <b>Conditions:</b> {', '.join(profile['chronic_conditions'])}\n"
-        
-    if profile.get('medications'):
-        text += f"💊 <b>Medications:</b> {', '.join(profile['medications'])}\n"
+    parts = args.split(",")
+    for part in parts:
+        if ":" in part:
+            key, val = part.split(":", 1)
+            key, val = key.strip().lower(), val.strip()
+            
+            if key in ["age", "weight", "gender"]:
+                new_data["demographics"][key] = val
+            elif key in ["conditions", "condition", "disease"]:
+                new_data["chronic_conditions"].append(val)
+            elif key in ["meds", "medications", "medicine"]:
+                new_data["medications"].append(val)
 
-    await message.answer(text, parse_mode=ParseMode.HTML)
+    # Save to Redis via existing service method
+    await medical_service.update_user_profile(message.from_user.id, new_data)
+    
+    await message.answer("✅ <b>Profile updated!</b>\nI will consider this information in our future conversations.", parse_mode=ParseMode.HTML)
+
+@router.message(Command("profile"))
+async def cmd_profile(message: types.Message):
+    profile = await medical_service.get_user_profile(message.from_user.id)
+    
+    if not any(profile.values()):
+        await message.answer("📝 Your profile is currently empty.")
+        return
+
+    # Format output for clarity
+    res = ["<b>📋 Current Medical Context:</b>\n"]
+    
+    if profile.get("demographics"):
+        res.append(f"👤 <b>Bio:</b> {', '.join([f'{k}: {v}' for k, v in profile['demographics'].items()])}")
+    
+    if profile.get("chronic_conditions"):
+        res.append(f"🏥 <b>Conditions:</b> {', '.join(profile['chronic_conditions'])}")
+        
+    if profile.get("medications"):
+        res.append(f"💊 <b>Medications:</b> {', '.join(profile['medications'])}")
+
+    res.append("\n<i>This info is shared with the AI to personalize your health insights.</i>")
+    
+    await message.answer("\n".join(res), parse_mode=ParseMode.HTML)
   
 @router.message(Command("start"))
 async def cmd_start(message: types.Message):
