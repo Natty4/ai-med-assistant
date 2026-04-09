@@ -146,7 +146,7 @@ class MedicalService:
                         pass
 
         context_str = json.dumps(icd_context) if icd_context else "No specific match found."
-        
+        print(context_str, '<<-****->>')
         # final_prompt = f"""System: Use this ICD data: {context_str}. 
         #                 User said: {user_text}. 
         #                 Explain the condition simply.
@@ -159,18 +159,17 @@ class MedicalService:
         profile = await self.get_user_profile(user_id)
         profile_summary = json.dumps(profile)
 
-        final_prompt = f"""System: You are a Medical Assistant. 
+        final_prompt = f"""System: Use this ICD data: {context_str}. 
                         Patient Profile: {profile_summary}.
-                        Reference ICD Data: {context_str}. 
                         User said: {user_text}. 
-                        
-                        TASK:
-                        1. Respond to the user using the ICD data and their history.
+                        Explain the condition simply.
+                        1. Respond to the user using the ICD data and their history (if avialable).
                         2. If the user mentioned new personal info (age, weight, existing disease, meds), 
                            wrap that info in a JSON block at the end like this:
                            JSON_UPDATE: {{"demographics": {{"age": 30}}, "chronic_conditions": ["Diabetes"]}}
-                        3. Provide a structured response using Telegram HTML (<b>, <i>, <code>).
-                        IMPORTANT: Do not use Markdown symbols. Use ONLY HTML.
+
+                        End with <blockquote expandable><b>DISCLAIMER</b>\n\n ...</blockquote>
+                        IMPORTANT: Do not use Markdown symbols. Use ONLY HTML (<b>, <i>, <code>).
                         """
         
         last_error = None
