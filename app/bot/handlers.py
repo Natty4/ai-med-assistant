@@ -164,16 +164,15 @@ async def cmd_profile(message: types.Message):
 @router.message(Command("start"))
 async def cmd_start(message: types.Message):
     await message.answer("🩺 <b>Medical Assistant</b>\nHow can I help you today?", parse_mode=ParseMode.HTML)
+
         
 
 @router.message()
 async def handle_user_query(message: types.Message):
-    is_valid = await medical_service.is_meaningful_input(message.text, user_id)
-    
-    if not is_valid:
-        await message.answer("<b>I'm listening.</b>\nPlease describe your symptoms or answer the previous question.", parse_mode=ParseMode.HTML)
+    if not medical_service._is_valid_query(message.text):
+        await message.answer("<b>Hello!</b>\nPlease describe your symptoms or condition briefly.", parse_mode=ParseMode.HTML)
         return
-    
+
     user_id = message.from_user.id
     session_key = f"session:{user_id}"
     clean_term = medical_service._clean_query(message.text)

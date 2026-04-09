@@ -77,10 +77,6 @@ class MedicalService:
             items = new_data.get(key, [])
             # Convert to set for deduplication, then back to list
             current[key] = list(set(current[key] + items))
-
-        if "summary" in new_data:
-            current["history"].insert(0, new_data["summary"])
-            current["history"] = current["history"][:3] # Keep only 3
             
         await redis_client.set(f"profile:{user_id}", json.dumps(current))
         
@@ -97,19 +93,6 @@ class MedicalService:
     def _is_valid_query(self, text: str) -> bool:
         user_words = set(re.findall(r'\b[a-z]{4,}\b', text.lower()))
         return any(word in self.medical_vocabulary for word in user_words)
-
-    async def is_meaningful_input(self, text: str, user_id: int) -> bool:
-
-        if self._is_valid_query(text):
-            return True
-        
-        history_key = f"chat_history:{user_id}"
-        if redis_client:
-            has_history = await redis_client.exists(history_key)
-            if has_history and len(text.split()) > 0:
-                return True
-                
-        return False
 
     def _clean_query(self, text: str) -> str:
         words = re.findall(r'\w+', text.lower())
@@ -174,36 +157,34 @@ class MedicalService:
         profile = await self.get_user_profile(user_id)
         profile_summary = json.dumps(profile)
         
-        history_key = f"chat_history:{user_id}"
-        raw_history = await redis_client.lrange(history_key, 0, 4) if redis_client else []
-        chat_history_context = "\n".join(raw_history[::-1]) # Oldest first
 
         final_prompt = f"""
-            <SYSTEM_ROLE>
-                You are a highly skilled Medical Triage Assistant (Persona: 2026 Digital Health Professional). 
-                Your goal is to provide structured, safe, and helpful medical insights based on ICD-11 data and user history.
-                Crucially, determine if the User Input is an ANSWER to your previous question or a NEW topic.
-            </SYSTEM_ROLE>
+            <INSTRUCTION>
+                You are a clinical data synthesizer. You are STRICTLY LIMITED to the provided ICD-11 API data. 
+                Do not use external medical training for the 'Proactive Guidance' section.
+            </INSTRUCTION>
 
-            <CONVERSATION_HISTORY>
-                {chat_history_context}
-            </CONVERSATION_HISTORY>
+            <SOURCE_DATA_FROM_ICD_API>
+                {json.dumps(icd_context)}
+            </SOURCE_DATA_FROM_ICD_API>
 
-            <CONTEXT>
-                ICD-11 Data: {context_str}
-                Patient Profile: {profile_summary}
-                Current User Input: {user_text}
-            </CONTEXT>
-            
+            <USER_INPUT>
+                {user_text}
+            </USER_INPUT>
 
-            <OPERATIONAL_RULES>
-                1. If the User Input is an answer (e.g., "3 days", "It's a 7/10"), combine it with the previous context to provide a summary.
-                2. If the User Input is a brand new symptom, pivot immediately to the new issue.
-                3. SAFETY FIRST: If the user input indicates a life-threatening emergency (e.g., severe chest pain, stroke symptoms, difficulty breathing), STOP everything and provide an immediate, bolded EMERGENCY WARNING to call local emergency services.
-                4. NON-DIAGNOSTIC TONE: Never say "You have X." Use clinical phrasing: "Your symptoms are consistent with...", "Possible considerations include...", or "Based on the data, this could be...".
-                5. TRIAGE NURSE BEHAVIOR: If the user's description is vague, ask exactly 2-3 targeted follow-up questions regarding Duration, Severity (1-10), or Triggers.
-                6. HISTORY AWARENESS: Fact-check the advice against the Patient Profile. If they have a condition (e.g., Hypertension), mention how it might relate to the current symptom.
-            </OPERATIONAL_RULES>
+            <TASK>
+                1. Analyze the 'related_signs' and 'index_terms' in the SOURCE_DATA.
+                2. Identify the "Differential Signs" (symptoms that distinguish one condition from another in the ICD results).
+                3. PROACTIVE RESPONSE: 
+                - Instead of asking the user, state: "According to the ICD-11 database, [Title] is often associated with [related_signs]. If you are experiencing [Sign A] specifically, the priority level is [X]."
+                4. If the user input is an answer to a previous turn, merge it with the ICD profile of the suspected condition.
+            </TASK>
+
+            <STRICT_RULES>
+                - Every 'If' statement must be backed by a 'related_sign' or 'index_term' from the JSON above.
+                - If the API data is empty, state that no clinical match was found in the WHO database for that specific term.
+                - Use HTML tags only.
+            </STRICT_RULES>
 
             <OUTPUT_STRUCTURE>
                 Respond ONLY using HTML tags (<b>, <i>, <code>). Do NOT use Markdown (no asterisks, no hashtags).
@@ -234,10 +215,7 @@ class MedicalService:
                     model=model_name, 
                     contents=final_prompt
                 )
-                if redis_client:
-                    await redis_client.lpush(history_key, f"User: {user_text}", f"Assistant: {response[:200]}")
-                    await redis_client.ltrim(history_key, 0, 10) # Keep last 10 lines
-                    await redis_client.expire(history_key, 3600) # Expire history after 1 hour
+        
                 return self._process_response_and_update_profile(response.text, user_id)
             
             except Exception as e:
@@ -272,60 +250,50 @@ class MedicalService:
         
         return raw_text
     
+    # app/core/services.py
+
     async def _fetch_icd_data(self, query):
         try:
             token = await self.get_token()
             headers = {
-                'Authorization': f'Bearer {token}', 
-                'Accept': 'application/json', 
-                'Accept-Language': 'en', 
-                'API-Version': 'v2'
-            }
+                    'Authorization': f'Bearer {token}', 
+                    'Accept': 'application/json', 
+                    'Accept-Language': 'en', 
+                    'API-Version': 'v2'
+                }
             
-            # Search for the query
+            # 1. Search for the entity
             search_resp = await self.http_client.get(
                 "https://id.who.int/icd/entity/search", 
                 headers=headers, 
-                params={'q': query, 'useFoundation': 'true'},
-                follow_redirects=True
+                params={'q': query, 'useFoundation': 'true'}
             )
-            
-            if search_resp.status_code != 200:
-                return None
-
+            if search_resp.status_code != 200: return None
             results = search_resp.json().get('destinationEntities', [])
-            if not results:
-                return None
+            if not results: return None
 
-            # Fetch top 3 matches to build a "Knowledge Bundle"
             rich_bundle = []
-            for entity in results[:6]:
-                # The ID returned is often http://id.who.int/... 
-                # follow_redirects=True handles the jump to https
-                try:
-                    detail_resp = await self.http_client.get(
-                        entity['id'], 
-                        headers=headers, 
-                        timeout=10,
-                        follow_redirects=True 
-                    )
-                    
-                    if detail_resp.status_code == 200:
-                        d = detail_resp.json()
-                        rich_bundle.append({
-                            "title": d.get("title", {}).get("@value"),
-                            "definition": d.get("definition", {}).get("@value", "No definition available."),
-                            "longDefinition": d.get("longDefinition", {}).get("@value", "No longDefinition available."),
-                            "synonyms": [s.get("label", {}).get("@value") for s in d.get("synonym", [])],
-                            "foundationChild": [c.get("label", {}).get("@value") for c in d.get("foundationChildEntities", [])[:5]]
-                        })
-                except Exception as e:
-                    logger.error(f"Error fetching detail for {entity['id']}: {e}")
-
-            return rich_bundle if rich_bundle else None
-
+            # We look at the top 3 matches to find overlapping symptoms
+            for entity in results[:3]:
+                detail_resp = await self.http_client.get(entity['id'], headers=headers, follow_redirects=True)
+                if detail_resp.status_code == 200:
+                    d = detail_resp.json()
+                    # EXTRACT DEEP DATA: 
+                    # We pull 'indexTerm' and 'inclusion' which are the "signs and symptoms" in ICD-11
+                    rich_bundle.append({
+                        "title": d.get("title", {}).get("@value"),
+                        "definition": d.get("definition", {}).get("@value"),
+                        "related_signs": [i.get("label", {}).get("@value") for i in d.get("inclusion", [])],
+                        "narrower_categories": [c.get("label", {}).get("@value") for c in d.get("foundationChildEntities", [])[:10]],
+                        "index_terms": [t.get("label", {}).get("@value") for t in d.get("indexTerm", [])[:10]],
+                        "longDefinition": d.get("longDefinition", {}).get("@value", "No longDefinition available."),
+                        "synonyms": [s.get("label", {}).get("@value") for s in d.get("synonym", [])],
+                        "foundationChild": [c.get("label", {}).get("@value") for c in d.get("foundationChildEntities", [])[:5]]
+                    })
+            print(rich_bundle, '---------')
+            return rich_bundle
         except Exception as e:
-            logger.error(f"ICD Fetch Error: {e}")
+            logger.error(f"ICD Deep Fetch Error: {e}")
             return None
         
     # Cleanup method for when the bot shuts down
