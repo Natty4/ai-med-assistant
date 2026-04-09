@@ -145,16 +145,9 @@ class MedicalService:
                     except:
                         pass
 
-        context_str = json.dumps(icd_context) if icd_context else "No specific match found."
+        context_str = json.dumps(icd_context) if icd_context else "General medical knowledge (No direct ICD-11 match)."
         print(context_str, '<<-****->>')
-        # final_prompt = f"""System: Use this ICD data: {context_str}. 
-        #                 User said: {user_text}. 
-        #                 Explain the condition simply.
-        #                 Provide a structured response using Telegram HTML (<b>, <i>, <code>).
-        #                 End with <blockquote expandable><b>DISCLAIMER</b>\n\n ...</blockquote>
-                        
-        #                 IMPORTANT: Do not use Markdown symbols. Use ONLY HTML.
-        #                 """
+
         # Fetch the patient profile
         profile = await self.get_user_profile(user_id)
         profile_summary = json.dumps(profile)
@@ -216,10 +209,19 @@ class MedicalService:
             search_resp = await self.http_client.get(
                 "https://id.who.int/icd/entity/search", 
                 headers=headers, 
-                params={'q': query, 'useFoundation': 'true'}
+                params={'q': query, 
+                        'useFoundation': 'true',
+                        'flatResults': 'false',
+                        }
             )
             
             if search_resp.status_code == 200:
+                logger.info(f"🔍 Sending to WHO API: {query}")
+                data = search_resp.json()
+                # If destinationEntities is empty, WHO found nothing
+                if not data.get('destinationEntities'):
+                    logger.warning(f"❓ WHO API returned zero results for: {query}")
+                    return None
                 data = search_resp.json()
                 if data.get('destinationEntities'):
                     detail_resp = await self.http_client.get(
