@@ -33,6 +33,12 @@ class MedicalService:
             "i", "have", "a", "the", "feel", "like", "am", "suffering", 
             "from", "pain", "my", "is", "it", "with", "and", "in", "on", "was"
         }
+        # FIX: Persistent client with connection pooling
+        self.http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(15.0, connect=5.0),
+            limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+            headers={"Connection": "keep-alive"}
+        )
 
     def load_local_keywords(self):
         try:
@@ -69,16 +75,21 @@ class MedicalService:
         search_query = self._clean_query(user_text)
         cache_key = f"icd_cache:{search_query.replace(' ', '_')}"
         
-        # 1. Try Cache
-        cached_res = await redis_client.get(cache_key)
+        try:
+            # FIX: Check Redis with a local try/except to prevent total crash
+            cached_res = await redis_client.get(cache_key)
+        except Exception as e:
+            logger.error(f"Redis link failed: {e}")
+            cached_res = None
+
         if cached_res:
-            logger.info(f"⚡ Cache Hit: {search_query}")
             icd_context = json.loads(cached_res)
         else:
-            # 2. Fetch from API
             icd_context = await self._fetch_icd_data(search_query)
             if icd_context:
-                await redis_client.setex(cache_key, 86400, json.dumps(icd_context)) # 24h cache
+                try:
+                    await redis_client.setex(cache_key, 86400, json.dumps(icd_context))
+                except: pass
 
         context_str = json.dumps(icd_context) if icd_context else "No specific match found."
         
@@ -99,17 +110,28 @@ class MedicalService:
         try:
             token = await self.get_token()
             headers = {'Authorization': f'Bearer {token}', 'Accept': 'application/json', 'Accept-Language': 'en', 'API-Version': 'v2'}
-            async with httpx.AsyncClient() as client:
-                search_resp = await client.get("https://id.who.int/icd/entity/search", headers=headers, params={'q': query, 'useFoundation': 'true'}, timeout=8.0)
-                if search_resp.status_code == 200:
-                    data = search_resp.json()
-                    if data.get('destinationEntities'):
-                        detail_resp = await client.get(data['destinationEntities'][0]['id'], headers=headers, timeout=5.0)
-                        return detail_resp.json() if detail_resp.status_code == 200 else None
+            search_resp = await self.http_client.get(
+                "https://id.who.int/icd/entity/search", 
+                headers=headers, 
+                params={'q': query, 'useFoundation': 'true'}
+            )
+            
+            if search_resp.status_code == 200:
+                data = search_resp.json()
+                if data.get('destinationEntities'):
+                    detail_resp = await self.http_client.get(
+                        data['destinationEntities'][0]['id'], 
+                        headers=headers
+                    )
+                    return detail_resp.json() if detail_resp.status_code == 200 else None
             return None
         except Exception as e:
             logger.error(f"ICD Fetch Error: {e}")
             return None
+        
+    # Cleanup method for when the bot shuts down
+    async def close_connections(self):
+        await self.http_client.aclose()
         
 # Singleton Instance
 medical_service = MedicalService(
