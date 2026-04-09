@@ -98,6 +98,19 @@ class MedicalService:
         user_words = set(re.findall(r'\b[a-z]{4,}\b', text.lower()))
         return any(word in self.medical_vocabulary for word in user_words)
 
+    async def is_meaningful_input(self, text: str, user_id: int) -> bool:
+
+        if self._is_valid_query(text):
+            return True
+        
+        history_key = f"chat_history:{user_id}"
+        if redis_client:
+            has_history = await redis_client.exists(history_key)
+            if has_history and len(text.split()) > 0:
+                return True
+                
+        return False
+
     def _clean_query(self, text: str) -> str:
         words = re.findall(r'\w+', text.lower())
         filtered = [w for w in words if w not in self.stop_words]
@@ -160,24 +173,36 @@ class MedicalService:
         # Fetch the patient profile
         profile = await self.get_user_profile(user_id)
         profile_summary = json.dumps(profile)
+        
+        history_key = f"chat_history:{user_id}"
+        raw_history = await redis_client.lrange(history_key, 0, 4) if redis_client else []
+        chat_history_context = "\n".join(raw_history[::-1]) # Oldest first
 
         final_prompt = f"""
             <SYSTEM_ROLE>
                 You are a highly skilled Medical Triage Assistant (Persona: 2026 Digital Health Professional). 
                 Your goal is to provide structured, safe, and helpful medical insights based on ICD-11 data and user history.
+                Crucially, determine if the User Input is an ANSWER to your previous question or a NEW topic.
             </SYSTEM_ROLE>
+
+            <CONVERSATION_HISTORY>
+                {chat_history_context}
+            </CONVERSATION_HISTORY>
 
             <CONTEXT>
                 ICD-11 Data: {context_str}
                 Patient Profile: {profile_summary}
                 Current User Input: {user_text}
             </CONTEXT>
+            
 
             <OPERATIONAL_RULES>
-                1. SAFETY FIRST: If the user input indicates a life-threatening emergency (e.g., severe chest pain, stroke symptoms, difficulty breathing), STOP everything and provide an immediate, bolded EMERGENCY WARNING to call local emergency services.
-                2. NON-DIAGNOSTIC TONE: Never say "You have X." Use clinical phrasing: "Your symptoms are consistent with...", "Possible considerations include...", or "Based on the data, this could be...".
-                3. TRIAGE NURSE BEHAVIOR: If the user's description is vague, ask exactly 2-3 targeted follow-up questions regarding Duration, Severity (1-10), or Triggers.
-                4. HISTORY AWARENESS: Fact-check the advice against the Patient Profile. If they have a condition (e.g., Hypertension), mention how it might relate to the current symptom.
+                1. If the User Input is an answer (e.g., "3 days", "It's a 7/10"), combine it with the previous context to provide a summary.
+                2. If the User Input is a brand new symptom, pivot immediately to the new issue.
+                3. SAFETY FIRST: If the user input indicates a life-threatening emergency (e.g., severe chest pain, stroke symptoms, difficulty breathing), STOP everything and provide an immediate, bolded EMERGENCY WARNING to call local emergency services.
+                4. NON-DIAGNOSTIC TONE: Never say "You have X." Use clinical phrasing: "Your symptoms are consistent with...", "Possible considerations include...", or "Based on the data, this could be...".
+                5. TRIAGE NURSE BEHAVIOR: If the user's description is vague, ask exactly 2-3 targeted follow-up questions regarding Duration, Severity (1-10), or Triggers.
+                6. HISTORY AWARENESS: Fact-check the advice against the Patient Profile. If they have a condition (e.g., Hypertension), mention how it might relate to the current symptom.
             </OPERATIONAL_RULES>
 
             <OUTPUT_STRUCTURE>
@@ -209,7 +234,12 @@ class MedicalService:
                     model=model_name, 
                     contents=final_prompt
                 )
+                if redis_client:
+                    await redis_client.lpush(history_key, f"User: {user_text}", f"Assistant: {response[:200]}")
+                    await redis_client.ltrim(history_key, 0, 10) # Keep last 10 lines
+                    await redis_client.expire(history_key, 3600) # Expire history after 1 hour
                 return self._process_response_and_update_profile(response.text, user_id)
+            
             except Exception as e:
                 last_error = e
                 # Check if error is related to Quota (429) or Server (503/500)
